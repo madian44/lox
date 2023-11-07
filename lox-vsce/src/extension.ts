@@ -31,8 +31,13 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		let contents = activeEditor.document.getText();
-		let response = wasm.scan(contents);
-		outputChannel.append(response);
+		try {
+			let response = wasm.scan(contents);
+			outputChannel.append(response);
+		} catch (e: any) {
+			console.log("Caught an error " + e);
+			outputChannel.append(e);
+		}
 	});
 
 	context.subscriptions.push(scanLox);

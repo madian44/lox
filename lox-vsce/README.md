@@ -2,6 +2,8 @@
 
 # Commands
 
-## 'Hello Lox'
+## 'Lox: Hello'
 Says hello
 
+## 'Lox: Scam'
+Scan contents of the active editor
