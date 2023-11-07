@@ -16,10 +16,28 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "lox",
+        "extensions": [".lox"]
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "lox-vsce.scanLox",
+          "when": "editorLangId == lox"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "lox-vsce.helloLox",
-        "title": "Hello Lox"
+        "title": "Lox: Hello"
+      },
+      {
+        "command": "lox-vsce.scanLox",
+        "title": "Lox: Scan"
       }
     ]
   },
