@@ -1,0 +1,16 @@
+[package]
+name = "lox-wasm"
+version = "0.1.0"
+authors = ["madian44 <madian44@users.noreply.github.com>"]
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2.88"
+js-sys = "0.3.65"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.34"
+

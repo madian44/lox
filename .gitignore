@@ -1,0 +1,6 @@
+.idea
+.vscode
+*.vsix
+node_modules
+lox-vsce/out
+lox-wasm/target
