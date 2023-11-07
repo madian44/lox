@@ -1,5 +1,6 @@
 .idea
 .vscode
+.vscode-test
 *.vsix
 node_modules
 lox-vsce/out

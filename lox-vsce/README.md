@@ -1,2 +1,7 @@
-# lox-vsce README
+# lox-vsce
+
+# Commands
+
+## 'Hello Lox'
+Says hello
 

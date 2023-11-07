@@ -18,8 +18,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "lox-vsce.helloWorld",
-        "title": "Hello World"
+        "command": "lox-vsce.helloLox",
+        "title": "Hello Lox"
       }
     ]
   },
@@ -27,7 +27,6 @@
     "package": "vsce package",
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
