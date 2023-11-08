@@ -13,6 +13,9 @@ export function activate(context: vscode.ExtensionContext) {
 	// This line of code will only be executed once when your extension is activated
 	console.log('Congratulations, your extension "lox-vsce" is now active!');
 
+	const diagnostics = vscode.languages.createDiagnosticCollection("lox");
+	context.subscriptions.push(diagnostics);
+
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with registerCommand
 	// The commandId parameter must match the command field in package.json
@@ -31,16 +34,30 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		let contents = activeEditor.document.getText();
-		try {
-			let response = wasm.scan(contents);
-			outputChannel.append(response);
-		} catch (e: any) {
-			console.log("Caught an error " + e);
-			outputChannel.append(e);
-		}
+		const diagnosticCollection : vscode.Diagnostic[] = [];
+		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
+		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
 	});
 
 	context.subscriptions.push(scanLox);
+}
+
+function diagnosticAdder(coll: vscode.Diagnostic[])  {
+	return (line: number, column: number, message: string) => {
+		coll.push(createDiagnostic(line, message));
+	};
+}
+
+function messageAdder()  {
+	return (message: string) => {
+		outputChannel.append(message);
+	};
+}
+
+function createDiagnostic(lineNo: number, message: string) : vscode.Diagnostic {
+	const range = new vscode.Range(lineNo, 1, lineNo, 2);
+	const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Warning);
+	return diagnostic;
 }
 
 // This method is called when your extension is deactivated

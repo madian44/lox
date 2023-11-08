@@ -20,17 +20,28 @@ pub fn greet() {
 }
 
 #[wasm_bindgen]
-pub fn scan(text: &str) -> Result<String, JsValue> {
+pub fn scan(
+    text: &str,
+    js_report_message: js_sys::Function,
+    js_report_diagnostic: js_sys::Function,
+) {
+    let this1 = JsValue::null();
+    let this2 = JsValue::null();
+    let report_message = Box::new(move |message: &str| {
+        let _ = js_report_message.call1(&this1, &JsValue::from(message));
+    });
+
+    let report_diagnostic = Box::new(move |line: u32, column: u32, message: &str| {
+        let _ = js_report_diagnostic.call3(
+            &this2,
+            &JsValue::from(line),
+            &JsValue::from(column),
+            &JsValue::from(message),
+        );
+    });
+
+    let reporter = lox::reporter::Reporter::build(report_message, report_diagnostic);
+
     console_log(&format!("scanning {text}"));
-    let output = lox::run(text);
-    match output {
-        Ok(s) => {
-            console_log(&format!("Success: {s}"));
-            Ok(s)
-        }
-        Err(s) => {
-            console_log(&format!("Error: {s}"));
-            Err(JsValue::from_str(s))
-        }
-    }
+    lox::run(&reporter, text);
 }

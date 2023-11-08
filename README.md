@@ -45,4 +45,8 @@ Pretty basic at the moment:
 
 Typescript `vsce` extension.
 
+## Progress through the book...
 
+### Current
+
+Chapter 4 Scanning
