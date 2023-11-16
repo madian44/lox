@@ -4,6 +4,8 @@ use std::io;
 use std::io::Write;
 use std::process;
 
+use lox::{reporter, FileLocation};
+
 fn main() {
     println!("Hello, Lox!");
 
@@ -18,9 +20,29 @@ fn main() {
     }
 }
 
+struct MainReporter {
+    has_errors: bool,
+}
+impl reporter::Reporter for MainReporter {
+    fn add_diagnostic(&mut self, start: &FileLocation, end: &FileLocation, message: &str) {
+        self.has_errors = true;
+        println!(
+            "Diagnostic: [{0}:{1} {2}:{3}]{4}",
+            start.line_number, start.line_offset, end.line_number, end.line_offset, message
+        );
+    }
+
+    fn add_message(&mut self, message: &str) {
+        println!("Message: {message}");
+    }
+
+    fn has_diagnostics(&self) -> bool {
+        self.has_errors
+    }
+}
+
 fn run_prompt() {
-    let reporter =
-        lox::reporter::Reporter::build(Box::new(report_message), Box::new(report_diagnostic));
+    let mut reporter = MainReporter { has_errors: false };
     loop {
         print!("> ");
         if io::stdout().flush().is_err() {
@@ -34,7 +56,7 @@ fn run_prompt() {
                 if trimmed_line.is_empty() {
                     break;
                 }
-                lox::run(&reporter, trimmed_line);
+                lox::run(&mut reporter, trimmed_line);
             }
         }
     }
@@ -47,15 +69,6 @@ fn run_file(filepath: &str) {
         eprintln!("{e}");
         return;
     }
-    let reporter =
-        lox::reporter::Reporter::build(Box::new(report_message), Box::new(report_diagnostic));
-    lox::run(&reporter, &contents.unwrap());
-}
-
-fn report_message(message: &str) {
-    println!("Message: {message}");
-}
-
-fn report_diagnostic(line: u32, column: u32, message: &str) {
-    println!("Diagnostic: [{line}:{column}]{message}");
+    let mut reporter = MainReporter { has_errors: false };
+    lox::run(&mut reporter, &contents.unwrap());
 }

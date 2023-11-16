@@ -13,3 +13,7 @@ clean:
 clippy:
 	cargo clippy
 	$(MAKE) -C ../lox clippy
+
+test:
+	cargo test
+	$(MAKE) -C ../lox test

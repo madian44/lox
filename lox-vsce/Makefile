@@ -14,3 +14,7 @@ package: build
 
 clippy:
 	$(MAKE) CARGO_FLAGS=$(CARGO_FLAGS) -C ../lox-wasm clippy
+
+test:
+	$(MAKE) CARGO_FLAGS=$(CARGO_FLAGS) -C ../lox-wasm test
+	npm run test

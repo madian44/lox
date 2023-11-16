@@ -2,6 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import * as wasm from '../out/wasm/lox_wasm';
+import {FileLocation} from "./lox";
 
 const outputChannel = vscode.window.createOutputChannel("Lox", "lox");
 
@@ -43,8 +44,8 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function diagnosticAdder(coll: vscode.Diagnostic[])  {
-	return (line: number, column: number, message: string) => {
-		coll.push(createDiagnostic(line, message));
+	return (start: FileLocation, end: FileLocation, message: string) => {
+		coll.push(createDiagnostic(start, end, message));
 	};
 }
 
@@ -54,8 +55,8 @@ function messageAdder()  {
 	};
 }
 
-function createDiagnostic(lineNo: number, message: string) : vscode.Diagnostic {
-	const range = new vscode.Range(lineNo, 1, lineNo, 2);
+function createDiagnostic(start: FileLocation, end: FileLocation, message: string) : vscode.Diagnostic {
+	const range = new vscode.Range(start.line_number, start.line_offset, end.line_number, end.line_offset);
 	const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Warning);
 	return diagnostic;
 }

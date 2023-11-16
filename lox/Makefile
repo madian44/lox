@@ -8,3 +8,6 @@ clean:
 
 clippy:
 	cargo clippy
+
+test:
+	cargo test

@@ -1,27 +1,14 @@
-type MessageReporter = Box<dyn Fn(&str)>;
-type DiagnosticReporter = Box<dyn Fn(u32, u32, &str)>;
+use crate::location;
 
-pub struct Reporter {
-    message_reporter: MessageReporter,
-    diagnostic_reporter: DiagnosticReporter,
-}
+pub trait Reporter {
+    fn add_diagnostic(
+        &mut self,
+        start: &location::FileLocation,
+        end: &location::FileLocation,
+        message: &str,
+    );
 
-impl Reporter {
-    pub fn build(
-        message_reporter: MessageReporter,
-        diagnostic_reporter: DiagnosticReporter,
-    ) -> Self {
-        Reporter {
-            message_reporter,
-            diagnostic_reporter,
-        }
-    }
+    fn add_message(&mut self, message: &str);
 
-    pub fn add_message(&self, message: &str) {
-        (self.message_reporter)(message);
-    }
-
-    pub fn add_diagnostic(&self, line: u32, column: u32, message: &str) {
-        (self.diagnostic_reporter)(line, column, message);
-    }
+    fn has_diagnostics(&self) -> bool;
 }
