@@ -4,24 +4,25 @@ use crate::token;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-pub fn scan_tokens<'a>(
+pub fn scan_tokens<'s>(
     reporter: &mut dyn reporter::Reporter,
-    source: &'a str,
-) -> Vec<token::Token<'a>> {
+    source: &'s str,
+) -> Vec<token::Token<'s>> {
     let mut scanner = Scanner::build();
     scanner.scan(reporter, source)
 }
 
-struct Scanner {
+struct Scanner<'k> {
     token_start_line_number: u32,
     token_start_line_offset: u32,
     current_line_number: u32,
     current_line_offset: u32,
     start_of_token: usize,
     current_end_of_token: usize,
+    keywords: token::Keywords<'k>,
 }
 
-impl Scanner {
+impl<'k> Scanner<'k> {
     fn build() -> Self {
         Scanner {
             token_start_line_number: 0,
@@ -30,14 +31,15 @@ impl Scanner {
             current_line_offset: 0,
             start_of_token: 0,
             current_end_of_token: 0,
+            keywords: token::Keywords::build(),
         }
     }
 
-    fn scan<'a>(
+    fn scan<'s>(
         &mut self,
         reporter: &mut dyn reporter::Reporter,
-        source: &'a str,
-    ) -> Vec<token::Token<'a>> {
+        source: &'s str,
+    ) -> Vec<token::Token<'s>> {
         let mut tokens = Vec::new();
         let mut char_indices = source.char_indices().peekable();
         loop {
@@ -56,13 +58,13 @@ impl Scanner {
         tokens
     }
 
-    fn parse_character<'a>(
+    fn parse_character<'s>(
         &mut self,
         reporter: &mut dyn reporter::Reporter,
-        source: &'a str,
+        source: &'s str,
         char_indices: &mut Peekable<CharIndices>,
         c: char,
-    ) -> Option<token::Token<'a>> {
+    ) -> Option<token::Token<'s>> {
         match c {
             '(' => Some(self.build_token(token::TokenType::LeftParen, source)),
             ')' => Some(self.build_token(token::TokenType::RightParen, source)),
@@ -120,6 +122,8 @@ impl Scanner {
             _ => {
                 if c.is_ascii_digit() {
                     self.build_number(source, char_indices)
+                } else if c.is_alphabetic() {
+                    self.build_identifier(source, char_indices)
                 } else {
                     reporter.add_diagnostic(
                         &location::FileLocation::new(
@@ -158,6 +162,49 @@ impl Scanner {
         false
     }
 
+    fn peek_next(&self, source: &str, offset: usize) -> Option<char> {
+        if source.len() < offset + 1 {
+            return None;
+        }
+        let next = &source[(offset + 1)..];
+        next.chars().next()
+    }
+
+    fn build_token<'s>(&self, token_type: token::TokenType, source: &'s str) -> token::Token<'s> {
+        let lexeme = &source[self.start_of_token..=self.current_end_of_token];
+        token::Token::new(
+            token_type,
+            lexeme,
+            location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
+            location::FileLocation::new(self.current_line_number, self.current_line_offset),
+            token::Literal::None,
+        )
+    }
+
+    fn build_string_token<'s>(&self, source: &'s str) -> token::Token<'s> {
+        let lexeme = &source[self.start_of_token..=self.current_end_of_token];
+        token::Token::new(
+            token::TokenType::String,
+            lexeme,
+            location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
+            location::FileLocation::new(self.current_line_number, self.current_line_offset),
+            token::Literal::String(
+                &source[(self.start_of_token + 1)..=(self.current_end_of_token - 1)],
+            ),
+        )
+    }
+
+    fn build_number_token<'s>(&self, source: &'s str) -> token::Token<'s> {
+        let lexeme = &source[self.start_of_token..=self.current_end_of_token];
+        token::Token::new(
+            token::TokenType::Number,
+            lexeme,
+            location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
+            location::FileLocation::new(self.current_line_number, self.current_line_offset),
+            token::Literal::Number(lexeme.parse().unwrap()),
+        )
+    }
+
     fn consume_line(&mut self, char_indices: &mut Peekable<CharIndices>) {
         while let Some((_i, c)) = char_indices.peek() {
             if *c == '\n' {
@@ -167,12 +214,12 @@ impl Scanner {
         }
     }
 
-    fn build_string<'a>(
+    fn build_string<'s>(
         &mut self,
         reporter: &mut dyn reporter::Reporter,
-        source: &'a str,
+        source: &'s str,
         char_indices: &mut Peekable<CharIndices>,
-    ) -> Option<token::Token<'a>> {
+    ) -> Option<token::Token<'s>> {
         loop {
             if let Some((_i, c)) = self.advance(char_indices) {
                 if c == '\n' {
@@ -199,14 +246,21 @@ impl Scanner {
         }
     }
 
-    fn build_number<'a>(
+    fn build_number<'s>(
         &mut self,
-        source: &'a str,
+        source: &'s str,
         char_indices: &mut Peekable<CharIndices>,
-    ) -> Option<token::Token<'a>> {
+    ) -> Option<token::Token<'s>> {
         self.scan_digits(char_indices);
-        if let Some((_i, c)) = char_indices.peek() {
+        if let Some((i, c)) = char_indices.peek() {
             if *c == '.' {
+                let peeked_next_char = self.peek_next(source, *i);
+                if peeked_next_char.is_none() {
+                    return Some(self.build_number_token(source));
+                }
+                if !peeked_next_char.unwrap().is_ascii_digit() {
+                    return Some(self.build_number_token(source));
+                }
                 self.advance(char_indices);
             } else {
                 return Some(self.build_number_token(source));
@@ -225,39 +279,26 @@ impl Scanner {
         }
     }
 
-    fn build_token<'a>(&self, token_type: token::TokenType, source: &'a str) -> token::Token<'a> {
-        let lexeme = &source[self.start_of_token..=self.current_end_of_token];
-        token::Token::new(
-            token_type,
-            lexeme,
-            location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
-            location::FileLocation::new(self.current_line_number, self.current_line_offset),
-            token::Literal::None,
-        )
-    }
-
-    fn build_string_token<'a>(&self, source: &'a str) -> token::Token<'a> {
-        let lexeme = &source[self.start_of_token..=self.current_end_of_token];
-        token::Token::new(
-            token::TokenType::String,
-            lexeme,
-            location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
-            location::FileLocation::new(self.current_line_number, self.current_line_offset),
-            token::Literal::String(
-                &source[(self.start_of_token + 1)..=(self.current_end_of_token - 1)],
-            ),
-        )
-    }
-
-    fn build_number_token<'a>(&self, source: &'a str) -> token::Token<'a> {
-        let lexeme = &source[self.start_of_token..=self.current_end_of_token];
-        token::Token::new(
-            token::TokenType::Number,
-            lexeme,
-            location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
-            location::FileLocation::new(self.current_line_number, self.current_line_offset),
-            token::Literal::Number(lexeme.parse().unwrap()),
-        )
+    fn build_identifier<'s>(
+        &mut self,
+        source: &'s str,
+        char_indices: &mut Peekable<CharIndices>,
+    ) -> Option<token::Token<'s>> {
+        while let Some((_i, c)) = char_indices.peek() {
+            if c.is_alphabetic() {
+                self.advance(char_indices);
+            } else {
+                break;
+            }
+        }
+        let token = self.build_token(token::TokenType::Identifier, source);
+        if let Some(identifier_token) = self.keywords.get_keyword(token.lexeme) {
+            return Some(token::Token {
+                token_type: identifier_token,
+                ..token
+            });
+        }
+        Some(token)
     }
 }
 
@@ -524,13 +565,22 @@ mod test {
             ),
             (
                 "10.",
-                vec![token::Token::new(
-                    token::TokenType::Number,
-                    "10.",
-                    location::FileLocation::new(0, 0),
-                    location::FileLocation::new(0, 3),
-                    token::Literal::Number(10f64),
-                )],
+                vec![
+                    token::Token::new(
+                        token::TokenType::Number,
+                        "10",
+                        location::FileLocation::new(0, 0),
+                        location::FileLocation::new(0, 2),
+                        token::Literal::Number(10f64),
+                    ),
+                    token::Token::new(
+                        token::TokenType::Dot,
+                        ".",
+                        location::FileLocation::new(0, 2),
+                        location::FileLocation::new(0, 3),
+                        token::Literal::None,
+                    ),
+                ],
             ),
             (
                 "10.1",
@@ -541,6 +591,117 @@ mod test {
                     location::FileLocation::new(0, 4),
                     token::Literal::Number(10.1f64),
                 )],
+            ),
+        ];
+
+        execute_tests(&mut reporter, &tests);
+    }
+
+    #[test]
+    fn identifier_tests() {
+        let mut reporter = TestReporter::build();
+
+        let tests = vec![
+            (
+                "andy",
+                vec![token::Token::new(
+                    token::TokenType::Identifier,
+                    "andy",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 4),
+                    token::Literal::None,
+                )],
+            ),
+            (
+                "and",
+                vec![token::Token::new(
+                    token::TokenType::And,
+                    "and",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 3),
+                    token::Literal::None,
+                )],
+            ),
+        ];
+
+        execute_tests(&mut reporter, &tests);
+    }
+
+    #[test]
+    fn adjacent_token_tests() {
+        let mut reporter = TestReporter::build();
+
+        let tests = vec![
+            (
+                "()",
+                vec![
+                    token::Token::new(
+                        token::TokenType::LeftParen,
+                        "(",
+                        location::FileLocation::new(0, 0),
+                        location::FileLocation::new(0, 1),
+                        token::Literal::None,
+                    ),
+                    token::Token::new(
+                        token::TokenType::RightParen,
+                        ")",
+                        location::FileLocation::new(0, 1),
+                        location::FileLocation::new(0, 2),
+                        token::Literal::None,
+                    ),
+                ],
+            ),
+            (
+                "10.!",
+                vec![
+                    token::Token::new(
+                        token::TokenType::Number,
+                        "10",
+                        location::FileLocation::new(0, 0),
+                        location::FileLocation::new(0, 2),
+                        token::Literal::Number(10f64),
+                    ),
+                    token::Token::new(
+                        token::TokenType::Dot,
+                        ".",
+                        location::FileLocation::new(0, 2),
+                        location::FileLocation::new(0, 3),
+                        token::Literal::None,
+                    ),
+                    token::Token::new(
+                        token::TokenType::Bang,
+                        "!",
+                        location::FileLocation::new(0, 3),
+                        location::FileLocation::new(0, 4),
+                        token::Literal::None,
+                    ),
+                ],
+            ),
+            (
+                ".\"10.1\"10.1",
+                vec![
+                    token::Token::new(
+                        token::TokenType::Dot,
+                        ".",
+                        location::FileLocation::new(0, 0),
+                        location::FileLocation::new(0, 1),
+                        token::Literal::None,
+                    ),
+                    token::Token::new(
+                        token::TokenType::String,
+                        "\"10.1\"",
+                        location::FileLocation::new(0, 1),
+                        location::FileLocation::new(0, 7),
+                        token::Literal::String("10.1"),
+                    ),
+                    token::Token::new(
+                        token::TokenType::Number,
+                        "10.1",
+                        location::FileLocation::new(0, 7),
+                        location::FileLocation::new(0, 11),
+                        token::Literal::Number(10.1f64),
+                    ),
+                ],
             ),
         ];
 

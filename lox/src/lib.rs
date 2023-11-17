@@ -1,10 +1,10 @@
-pub mod reporter;
-
 mod location;
+mod reporter;
 mod scanner;
 mod token;
 
 pub use crate::location::FileLocation;
+pub use crate::reporter::Reporter;
 
 pub fn run(reporter: &mut dyn reporter::Reporter, source: &str) {
     scanner::scan_tokens(reporter, source);

@@ -1,8 +1,9 @@
 use crate::location;
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     LeftParen,
     RightParen,
@@ -52,6 +53,38 @@ pub enum TokenType {
     Eof,
 
     Unimplemented, // remove this
+}
+
+pub struct Keywords<'a> {
+    keywords: HashMap<&'a str, TokenType>,
+}
+
+impl<'a> Keywords<'a> {
+    pub fn build() -> Self {
+        let mut keywords = HashMap::new();
+        keywords.insert("and", TokenType::And);
+        keywords.insert("class", TokenType::Class);
+        keywords.insert("else", TokenType::Else);
+        keywords.insert("false", TokenType::False);
+        keywords.insert("for", TokenType::For);
+        keywords.insert("fun", TokenType::Fun);
+        keywords.insert("if", TokenType::If);
+        keywords.insert("nil", TokenType::Nil);
+        keywords.insert("or", TokenType::Or);
+        keywords.insert("print", TokenType::Print);
+        keywords.insert("return", TokenType::Return);
+        keywords.insert("super", TokenType::Super);
+        keywords.insert("this", TokenType::This);
+        keywords.insert("true", TokenType::True);
+        keywords.insert("var", TokenType::Var);
+        keywords.insert("while", TokenType::While);
+
+        Keywords { keywords }
+    }
+
+    pub fn get_keyword(&self, lexeme: &str) -> Option<TokenType> {
+        self.keywords.get(lexeme).copied()
+    }
 }
 
 #[derive(Debug, PartialEq)]

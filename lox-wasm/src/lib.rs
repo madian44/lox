@@ -1,4 +1,4 @@
-use lox::reporter;
+use lox;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -46,7 +46,7 @@ impl WasmReporter {
     }
 }
 
-impl reporter::Reporter for WasmReporter {
+impl lox::Reporter for WasmReporter {
     fn add_diagnostic(
         &mut self,
         start: &lox::FileLocation,

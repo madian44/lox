@@ -4,8 +4,6 @@ use std::io;
 use std::io::Write;
 use std::process;
 
-use lox::{reporter, FileLocation};
-
 fn main() {
     println!("Hello, Lox!");
 
@@ -23,8 +21,13 @@ fn main() {
 struct MainReporter {
     has_errors: bool,
 }
-impl reporter::Reporter for MainReporter {
-    fn add_diagnostic(&mut self, start: &FileLocation, end: &FileLocation, message: &str) {
+impl lox::Reporter for MainReporter {
+    fn add_diagnostic(
+        &mut self,
+        start: &lox::FileLocation,
+        end: &lox::FileLocation,
+        message: &str,
+    ) {
         self.has_errors = true;
         println!(
             "Diagnostic: [{0}:{1} {2}:{3}]{4}",
