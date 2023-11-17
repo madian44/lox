@@ -1,6 +1,8 @@
 .PHONY: build
 
 build: wasm
+	mkdir -p out/syntaxes
+	cp syntaxes/* out/syntaxes
 	npm run compile
 
 wasm:

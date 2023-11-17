@@ -22,6 +22,13 @@
         "extensions": [".lox"]
       }
     ],
+    "grammars": [
+      {
+        "language": "lox",
+        "scopeName": "source.lox",
+        "path": "./syntaxes/lox.tmGrammar.json"
+      }
+    ],
     "menus": {
       "commandPalette": [
         {
