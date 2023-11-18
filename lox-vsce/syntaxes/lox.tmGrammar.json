@@ -1,0 +1,38 @@
+{
+  "scopeName": "source.lox",
+  "patterns": [
+    {"include":  "#comments"},
+    {"include":  "#keywords"},
+    {"include":  "#var"},
+    {"include":  "#strings"},
+    {"include":  "#numbers"},
+    {"include":  "#variables"}
+  ],
+  "repository": {
+    "keywords": {
+      "match": "\\b(and|class|else|false|for|fun|if|nil|or|print|return|super|this|true|while)\\b",
+      "name": "keyword"
+    },
+    "var": {
+      "match": "\\bvar\\b",
+      "name": "storage"
+    },
+    "strings": {
+      "name": "string",
+      "begin": "\"",
+      "end": "\""
+    },
+    "numbers": {
+      "name": "constant.numeric",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+    "comments": {
+      "name": "comment.line.double-slash",
+      "match": "//.*"
+    },
+    "variables": {
+      "name": "variable",
+      "match": "\\b[_a-zA-Z][a-zA-Z0-9_]*\\b"
+    }
+  }
+}

@@ -1,4 +1,5 @@
-# lox
+# Lox
+
 From Crafting Interpreters
 
 An implementation of lox from [Crafting Interpreters](https://craftinginterpreters.com/) as a visual studio code extension implemented in rust (wasm).
@@ -19,12 +20,8 @@ Install vsce dependencies
 
 Pretty basic at the moment:
 
-    $ cd lox-wasm
+    $ cd lox-vsce
     $ make build
-    $ ...
-    $ cd ../lox-vsce
-    $ vsce package
-
 
 ## Installing
 
@@ -34,5 +31,22 @@ Pretty basic at the moment:
 
     $ code --code --uninstall-extension undefined_publisher.lox-vsce
 
+## Projects
 
+### lox
 
+`rust` implementation of Lox.
+
+### lox-wasm
+
+`wasm` build of `lox` plus mapping to `vsce`.
+
+### lox-vsce
+
+Typescript `vsce` extension.
+
+## Progress through the book...
+
+### Current
+
+Chapter 4 Scanning

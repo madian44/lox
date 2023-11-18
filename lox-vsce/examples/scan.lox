@@ -1,0 +1,15 @@
+Some lox text
+keywords: and
+ class 
+"a string"
+"a multiline
+string"
+Line 2 long word or // a comment
+Line 3
+// a comment with a keyword or
+2.
+2.7
+var
+_anIdent234ifier
+~
+"Line 4

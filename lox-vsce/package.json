@@ -2,7 +2,7 @@
   "name": "lox-vsce",
   "displayName": "lox-vsce",
   "description": "",
-  "version": "0.0.1",
+  "version": "0.4.0",
   "engines": {
     "vscode": "^1.84.0"
   },
@@ -16,10 +16,35 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "lox",
+        "extensions": [".lox"]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "lox",
+        "scopeName": "source.lox",
+        "path": "./syntaxes/lox.tmGrammar.json"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "lox-vsce.scanLox",
+          "when": "editorLangId == lox"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "lox-vsce.helloLox",
-        "title": "Hello Lox"
+        "title": "Lox: Hello"
+      },
+      {
+        "command": "lox-vsce.scanLox",
+        "title": "Lox: Scan"
       }
     ]
   },
@@ -29,7 +54,8 @@
     "compile": "tsc -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "clean": "rm -rf out/*"
   },
   "devDependencies": {
     "@types/vscode": "^1.84.0",
