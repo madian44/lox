@@ -2,7 +2,7 @@
   "name": "lox-vsce",
   "displayName": "lox-vsce",
   "description": "",
-  "version": "0.0.1",
+  "version": "0.4.0",
   "engines": {
     "vscode": "^1.84.0"
   },

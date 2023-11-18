@@ -21,6 +21,11 @@ fn main() {
 struct MainReporter {
     has_errors: bool,
 }
+impl MainReporter {
+    fn reset(&mut self) {
+        self.has_errors = false;
+    }
+}
 impl lox::Reporter for MainReporter {
     fn add_diagnostic(
         &mut self,
@@ -59,7 +64,10 @@ fn run_prompt() {
                 if trimmed_line.is_empty() {
                     break;
                 }
-                lox::run(&mut reporter, trimmed_line);
+                reporter.reset();
+                for token in lox::run(&mut reporter, trimmed_line) {
+                    println!("{token}");
+                }
             }
         }
     }
@@ -73,5 +81,7 @@ fn run_file(filepath: &str) {
         return;
     }
     let mut reporter = MainReporter { has_errors: false };
-    lox::run(&mut reporter, &contents.unwrap());
+    for token in lox::run(&mut reporter, &contents.unwrap()) {
+        println!("{token}");
+    }
 }

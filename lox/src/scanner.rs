@@ -55,6 +55,8 @@ impl<'k> Scanner<'k> {
                 break;
             }
         }
+        self.start_of_token = self.current_end_of_token;
+        tokens.push(self.build_token(token::TokenType::Eof, source));
         tokens
     }
 
@@ -122,7 +124,7 @@ impl<'k> Scanner<'k> {
             _ => {
                 if c.is_ascii_digit() {
                     self.build_number(source, char_indices)
-                } else if c.is_alphabetic() {
+                } else if c.is_alphabetic() || c == '_' {
                     self.build_identifier(source, char_indices)
                 } else {
                     reporter.add_diagnostic(
@@ -285,7 +287,7 @@ impl<'k> Scanner<'k> {
         char_indices: &mut Peekable<CharIndices>,
     ) -> Option<token::Token<'s>> {
         while let Some((_i, c)) = char_indices.peek() {
-            if c.is_alphabetic() {
+            if c.is_alphabetic() || c.is_ascii_digit() || *c == '_' {
                 self.advance(char_indices);
             } else {
                 break;
@@ -377,13 +379,15 @@ mod test {
             );
             assert_eq!(
                 tokens.len(),
-                expected_tokens.len(),
+                expected_tokens.len() + 1, // always expect end of file
                 "Incorrect tokens returned"
             );
             for (i, expected_token) in expected_tokens.iter().enumerate() {
                 let token = &tokens[i];
                 assert_eq!(*token, *expected_token, "Unexpected token returned");
             }
+            let last_token = tokens.last().unwrap();
+            assert_eq!(last_token.token_type, token::TokenType::Eof);
         }
     }
 
@@ -619,6 +623,36 @@ mod test {
                     "and",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 3),
+                    token::Literal::None,
+                )],
+            ),
+            (
+                "with_underscore",
+                vec![token::Token::new(
+                    token::TokenType::Identifier,
+                    "with_underscore",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 15),
+                    token::Literal::None,
+                )],
+            ),
+            (
+                "with123digits",
+                vec![token::Token::new(
+                    token::TokenType::Identifier,
+                    "with123digits",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 13),
+                    token::Literal::None,
+                )],
+            ),
+            (
+                "_SHOUT",
+                vec![token::Token::new(
+                    token::TokenType::Identifier,
+                    "_SHOUT",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 6),
                     token::Literal::None,
                 )],
             ),

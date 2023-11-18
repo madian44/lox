@@ -123,6 +123,6 @@ impl<'a> Token<'a> {
 
 impl<'a> fmt::Display for Token<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?} {}", self.token_type, self.lexeme)
+        write!(f, "{:?} '{}'", self.token_type, self.lexeme)
     }
 }
