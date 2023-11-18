@@ -5,5 +5,5 @@
 ## 'Lox: Hello'
 Says hello
 
-## 'Lox: Scam'
+## 'Lox: Scan'
 Scan contents of the active editor
