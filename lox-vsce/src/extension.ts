@@ -14,8 +14,6 @@ export function activate(context: vscode.ExtensionContext) {
 	// This line of code will only be executed once when your extension is activated
 	console.log('Congratulations, your extension "lox-vsce" is now active!');
 
-	const diagnostics = vscode.languages.createDiagnosticCollection("lox");
-	context.subscriptions.push(diagnostics);
 
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with registerCommand
@@ -29,18 +27,49 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(helloLox);
 
-	let scanLox = vscode.commands.registerCommand('lox-vsce.scanLox', () => {
-		let activeEditor = vscode.window.activeTextEditor;
+	const diagnostics = vscode.languages.createDiagnosticCollection("lox");
+	context.subscriptions.push(diagnostics);
+
+	addScanLoxCommand(context, diagnostics);
+	addScanSelectedLoxCommand(context, diagnostics);
+}
+
+function addScanLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
+
+	defineCommand(context, "lox-vsce.scanLox", () => {
+		const activeEditor = vscode.window.activeTextEditor;
 		if(!activeEditor) {
 			return;
 		}
-		let contents = activeEditor.document.getText();
+		const contents = activeEditor.document.getText();
 		const diagnosticCollection : vscode.Diagnostic[] = [];
 		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
 	});
+}
 
-	context.subscriptions.push(scanLox);
+function addScanSelectedLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
+
+	defineCommand(context, "lox-vsce.scanSelectedLox", () => {
+		const activeEditor = vscode.window.activeTextEditor;
+		if(!activeEditor) {
+			return;
+		}
+		const selection = activeEditor.selection;
+		if( !selection || selection.isEmpty) {
+			return;
+		}
+		const selectionRange = new vscode.Range(selection.start.line, selection.start.character, selection.end.line, selection.end.character);
+		const contents = activeEditor.document.getText(selectionRange);
+		const diagnosticCollection : vscode.Diagnostic[] = [];
+		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
+		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
+	});
+}
+
+function defineCommand(context: vscode.ExtensionContext, commandName: string, callback: () => void) {
+	let command = vscode.commands.registerCommand(commandName, callback);
+	context.subscriptions.push(command);
 }
 
 function diagnosticAdder(coll: vscode.Diagnostic[])  {
@@ -51,7 +80,7 @@ function diagnosticAdder(coll: vscode.Diagnostic[])  {
 
 function messageAdder()  {
 	return (message: string) => {
-		outputChannel.append(message);
+		outputChannel.appendLine(message);
 	};
 }
 

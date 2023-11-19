@@ -1,4 +1,4 @@
-use lox;
+use lox::Reporter;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -101,5 +101,8 @@ pub fn scan(
     let mut reporter = WasmReporter::build(report_message, report_diagnostic);
 
     console_log(&format!("scanning {text}"));
-    lox::run(&mut reporter, text);
+    let tokens = lox::run(&mut reporter, text);
+    for token in tokens {
+        reporter.add_message(&format!("[Token]: {token}"));
+    }
 }
