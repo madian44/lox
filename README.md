@@ -50,3 +50,4 @@ Typescript `vsce` extension.
 ### Current
 
 Chapter 4 Scanning
+Chapter 5 Representing Code

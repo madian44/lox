@@ -35,6 +35,12 @@
           "command": "lox-vsce.scanLox",
           "when": "editorLangId == lox"
         }
+      ],
+      "editor/context": [
+        {
+          "command": "lox-vsce.scanSelectedLox",
+          "when": "editorLangId == lox && editorHasSelection"
+        }
       ]
     },
     "commands": [
@@ -45,6 +51,10 @@
       {
         "command": "lox-vsce.scanLox",
         "title": "Lox: Scan"
+      },
+      {
+        "command": "lox-vsce.scanSelectedLox",
+        "title": "Lox: Scan Selected"
       }
     ]
   },
