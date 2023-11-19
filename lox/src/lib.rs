@@ -1,3 +1,5 @@
+mod ast_printer;
+mod expr;
 mod location;
 mod reporter;
 mod scanner;
