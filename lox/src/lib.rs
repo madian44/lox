@@ -8,6 +8,6 @@ mod token;
 pub use crate::location::FileLocation;
 pub use crate::reporter::Reporter;
 
-pub fn run<'s>(reporter: &mut dyn reporter::Reporter, source: &'s str) -> Vec<token::Token<'s>> {
+pub fn run(reporter: &mut dyn reporter::Reporter, source: &str) -> Vec<token::Token> {
     scanner::scan_tokens(reporter, source)
 }

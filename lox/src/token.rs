@@ -88,32 +88,32 @@ impl<'a> Keywords<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Literal<'a> {
+pub enum Literal {
     None,
-    String(&'a str),
+    String(String),
     Number(f64),
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Token<'a> {
+pub struct Token {
     pub token_type: TokenType,
-    pub lexeme: &'a str,
-    pub literal: Literal<'a>,
+    pub lexeme: String,
+    pub literal: Literal,
     pub start: location::FileLocation,
     pub end: location::FileLocation,
 }
 
-impl<'a> Token<'a> {
+impl Token {
     pub fn new(
         token_type: TokenType,
-        lexeme: &'a str,
+        lexeme: &str,
         start: location::FileLocation,
         end: location::FileLocation,
-        literal: Literal<'a>,
+        literal: Literal,
     ) -> Self {
         Token {
             token_type,
-            lexeme,
+            lexeme: lexeme.to_string(),
             start,
             end,
             literal,
@@ -121,7 +121,7 @@ impl<'a> Token<'a> {
     }
 }
 
-impl<'a> fmt::Display for Token<'a> {
+impl fmt::Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{:?} '{}'", self.token_type, self.lexeme)
     }

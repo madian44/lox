@@ -4,10 +4,7 @@ use crate::token;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-pub fn scan_tokens<'s>(
-    reporter: &mut dyn reporter::Reporter,
-    source: &'s str,
-) -> Vec<token::Token<'s>> {
+pub fn scan_tokens(reporter: &mut dyn reporter::Reporter, source: &str) -> Vec<token::Token> {
     let mut scanner = Scanner::build();
     scanner.scan(reporter, source)
 }
@@ -35,11 +32,7 @@ impl<'k> Scanner<'k> {
         }
     }
 
-    fn scan<'s>(
-        &mut self,
-        reporter: &mut dyn reporter::Reporter,
-        source: &'s str,
-    ) -> Vec<token::Token<'s>> {
+    fn scan(&mut self, reporter: &mut dyn reporter::Reporter, source: &str) -> Vec<token::Token> {
         let mut tokens = Vec::new();
         let mut char_indices = source.char_indices().peekable();
         loop {
@@ -60,13 +53,13 @@ impl<'k> Scanner<'k> {
         tokens
     }
 
-    fn parse_character<'s>(
+    fn parse_character(
         &mut self,
         reporter: &mut dyn reporter::Reporter,
-        source: &'s str,
+        source: &str,
         char_indices: &mut Peekable<CharIndices>,
         c: char,
-    ) -> Option<token::Token<'s>> {
+    ) -> Option<token::Token> {
         match c {
             '(' => Some(self.build_token(token::TokenType::LeftParen, source)),
             ')' => Some(self.build_token(token::TokenType::RightParen, source)),
@@ -172,7 +165,7 @@ impl<'k> Scanner<'k> {
         next.chars().next()
     }
 
-    fn build_token<'s>(&self, token_type: token::TokenType, source: &'s str) -> token::Token<'s> {
+    fn build_token(&self, token_type: token::TokenType, source: &str) -> token::Token {
         let lexeme = &source[self.start_of_token..=self.current_end_of_token];
         token::Token::new(
             token_type,
@@ -183,7 +176,7 @@ impl<'k> Scanner<'k> {
         )
     }
 
-    fn build_string_token<'s>(&self, source: &'s str) -> token::Token<'s> {
+    fn build_string_token(&self, source: &str) -> token::Token {
         let lexeme = &source[self.start_of_token..=self.current_end_of_token];
         token::Token::new(
             token::TokenType::String,
@@ -191,12 +184,12 @@ impl<'k> Scanner<'k> {
             location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
             location::FileLocation::new(self.current_line_number, self.current_line_offset),
             token::Literal::String(
-                &source[(self.start_of_token + 1)..=(self.current_end_of_token - 1)],
+                source[(self.start_of_token + 1)..=(self.current_end_of_token - 1)].to_string(),
             ),
         )
     }
 
-    fn build_number_token<'s>(&self, source: &'s str) -> token::Token<'s> {
+    fn build_number_token(&self, source: &str) -> token::Token {
         let lexeme = &source[self.start_of_token..=self.current_end_of_token];
         token::Token::new(
             token::TokenType::Number,
@@ -216,12 +209,12 @@ impl<'k> Scanner<'k> {
         }
     }
 
-    fn build_string<'s>(
+    fn build_string(
         &mut self,
         reporter: &mut dyn reporter::Reporter,
-        source: &'s str,
+        source: &str,
         char_indices: &mut Peekable<CharIndices>,
-    ) -> Option<token::Token<'s>> {
+    ) -> Option<token::Token> {
         loop {
             if let Some((_i, c)) = self.advance(char_indices) {
                 if c == '\n' {
@@ -248,11 +241,11 @@ impl<'k> Scanner<'k> {
         }
     }
 
-    fn build_number<'s>(
+    fn build_number(
         &mut self,
-        source: &'s str,
+        source: &str,
         char_indices: &mut Peekable<CharIndices>,
-    ) -> Option<token::Token<'s>> {
+    ) -> Option<token::Token> {
         self.scan_digits(char_indices);
         if let Some((i, c)) = char_indices.peek() {
             if *c == '.' {
@@ -281,11 +274,11 @@ impl<'k> Scanner<'k> {
         }
     }
 
-    fn build_identifier<'s>(
+    fn build_identifier(
         &mut self,
-        source: &'s str,
+        source: &str,
         char_indices: &mut Peekable<CharIndices>,
-    ) -> Option<token::Token<'s>> {
+    ) -> Option<token::Token> {
         while let Some((_i, c)) = char_indices.peek() {
             if c.is_alphabetic() || c.is_ascii_digit() || *c == '_' {
                 self.advance(char_indices);
@@ -294,7 +287,7 @@ impl<'k> Scanner<'k> {
             }
         }
         let token = self.build_token(token::TokenType::Identifier, source);
-        if let Some(identifier_token) = self.keywords.get_keyword(token.lexeme) {
+        if let Some(identifier_token) = self.keywords.get_keyword(&token.lexeme) {
             return Some(token::Token {
                 token_type: identifier_token,
                 ..token
@@ -534,7 +527,7 @@ mod test {
                     "\"a string\"",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 10),
-                    token::Literal::String("a string"),
+                    token::Literal::String("a string".to_string()),
                 )],
             ),
             (
@@ -544,7 +537,7 @@ mod test {
                     "\"a string\nwith a new line\"",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(1, 16),
-                    token::Literal::String("a string\nwith a new line"),
+                    token::Literal::String("a string\nwith a new line".to_string()),
                 )],
             ),
         ];
@@ -726,7 +719,7 @@ mod test {
                         "\"10.1\"",
                         location::FileLocation::new(0, 1),
                         location::FileLocation::new(0, 7),
-                        token::Literal::String("10.1"),
+                        token::Literal::String("10.1".to_string()),
                     ),
                     token::Token::new(
                         token::TokenType::Number,

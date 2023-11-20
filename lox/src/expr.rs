@@ -1,26 +1,46 @@
 use crate::token;
 
-pub enum Expr<'s> {
-    Binary(Box<Expr<'s>>, token::Token<'s>, Box<Expr<'s>>),
-    Grouping(Box<Expr<'s>>),
-    Literal(token::Literal<'s>),
-    Unary(token::Token<'s>, Box<Expr<'s>>),
+pub enum Expr {
+    Binary {
+        left: Box<Expr>,
+        operator: token::Token,
+        right: Box<Expr>,
+    },
+    Grouping {
+        expression: Box<Expr>,
+    },
+    Literal {
+        value: token::Literal,
+    },
+    Unary {
+        operator: token::Token,
+        right: Box<Expr>,
+    },
 }
 
-impl<'s> Expr<'s> {
-    pub fn binary(left: Expr<'s>, operator: token::Token<'s>, right: Expr<'s>) -> Expr<'s> {
-        Expr::Binary(Box::new(left), operator, Box::new(right))
+impl Expr {
+    pub fn build_binary(left: Expr, operator: token::Token, right: Expr) -> Self {
+        Expr::Binary {
+            left: Box::new(left),
+            operator,
+            right: Box::new(right),
+        }
     }
 
-    pub fn grouping(expression: Expr<'s>) -> Expr<'s> {
-        Expr::Grouping(Box::new(expression))
+    pub fn build_grouping(expression: Expr) -> Self {
+        Expr::Grouping {
+            expression: Box::new(expression),
+        }
     }
 
-    pub fn literal(value: token::Literal<'s>) -> Expr<'s> {
-        Expr::Literal(value)
+    pub fn build_literal(value: token::Literal) -> Self {
+        Expr::Literal { value }
     }
 
-    pub fn unary(operator: token::Token<'s>, right: Expr<'s>) -> Expr<'s> {
-        Expr::Unary(operator, Box::new(right))
+    pub fn build_unary(operator: token::Token, right: Expr) -> Self {
+        Expr::Unary {
+            operator,
+            right: Box::new(right),
+        }
     }
 }
