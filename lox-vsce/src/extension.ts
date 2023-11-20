@@ -62,7 +62,7 @@ function addScanSelectedLoxCommand(context: vscode.ExtensionContext, diagnostics
 		const selectionRange = new vscode.Range(selection.start.line, selection.start.character, selection.end.line, selection.end.character);
 		const contents = activeEditor.document.getText(selectionRange);
 		const diagnosticCollection : vscode.Diagnostic[] = [];
-		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
+		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
 	});
 }
@@ -72,9 +72,20 @@ function defineCommand(context: vscode.ExtensionContext, commandName: string, ca
 	context.subscriptions.push(command);
 }
 
-function diagnosticAdder(coll: vscode.Diagnostic[])  {
+function diagnosticAdder(collection: vscode.Diagnostic[], startLine: number = 0, startCharacter: number = 0)  {
+	let firstDiagnostic = true;
+
 	return (start: FileLocation, end: FileLocation, message: string) => {
-		coll.push(createDiagnostic(start, end, message));
+		start.line_number += startLine;
+		end.line_number += startLine;
+		if(firstDiagnostic && startCharacter != 0) {
+			start.line_offset += startCharacter;
+			if(start.line_number == end.line_number) {
+				end.line_offset += startCharacter;
+			}
+		}
+		firstDiagnostic = false;
+		collection.push(createDiagnostic(start, end, message));
 	};
 }
 
