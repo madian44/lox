@@ -26,7 +26,10 @@ fn print_literal(value: &token::Literal) -> String {
     let value = match value {
         token::Literal::Number(n) => n.to_string(),
         token::Literal::String(s) => s.to_string(),
-        token::Literal::None => "nil".to_string(),
+        token::Literal::None => "None".to_string(),
+        token::Literal::Nil => "Nil".to_string(),
+        token::Literal::False => "False".to_string(),
+        token::Literal::True => "True".to_string(),
     };
     parenthesize(&value, vec![])
 }
@@ -61,8 +64,8 @@ mod test {
                 token::Token::new(
                     token::TokenType::Minus,
                     "-",
-                    blank_location.clone(),
-                    blank_location.clone(),
+                    blank_location,
+                    blank_location,
                     token::Literal::None,
                 ),
                 expr::Expr::build_literal(token::Literal::Number(123.0)),
@@ -70,8 +73,8 @@ mod test {
             token::Token::new(
                 token::TokenType::Star,
                 "*",
-                blank_location.clone(),
-                blank_location.clone(),
+                blank_location,
+                blank_location,
                 token::Literal::None,
             ),
             expr::Expr::build_grouping(expr::Expr::build_literal(token::Literal::Number(45.67))),

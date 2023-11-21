@@ -288,8 +288,10 @@ impl<'k> Scanner<'k> {
         }
         let token = self.build_token(token::TokenType::Identifier, source);
         if let Some(identifier_token) = self.keywords.get_keyword(&token.lexeme) {
+            let literal = token::get_keyword_literal(&identifier_token);
             return Some(token::Token {
                 token_type: identifier_token,
+                literal,
                 ..token
             });
         }
@@ -300,66 +302,10 @@ impl<'k> Scanner<'k> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::reporter::test::Diagnostic;
+    use crate::reporter::test::TestReporter;
+    use crate::reporter::Reporter;
     use crate::token::Token;
-    use reporter::Reporter;
-
-    #[derive(Debug, PartialEq)]
-    struct Diagnostic {
-        start: location::FileLocation,
-        end: location::FileLocation,
-        message: String,
-    }
-
-    struct Message {
-        message: String,
-    }
-
-    struct TestReporter {
-        diagnostics: Vec<Diagnostic>,
-        messages: Vec<Message>,
-    }
-
-    impl TestReporter {
-        fn build() -> Self {
-            TestReporter {
-                diagnostics: Vec::new(),
-                messages: Vec::new(),
-            }
-        }
-
-        fn has_messages(&self) -> bool {
-            !self.messages.is_empty()
-        }
-
-        fn reset(&mut self) {
-            self.messages.clear();
-            self.diagnostics.clear();
-        }
-    }
-
-    impl reporter::Reporter for TestReporter {
-        fn add_diagnostic(
-            &mut self,
-            start: &location::FileLocation,
-            end: &location::FileLocation,
-            message: &str,
-        ) {
-            self.diagnostics.push(Diagnostic {
-                start: start.clone(),
-                end: end.clone(),
-                message: message.to_string(),
-            });
-        }
-
-        fn add_message(&mut self, message: &str) {
-            self.messages.push(Message {
-                message: message.to_string(),
-            });
-        }
-        fn has_diagnostics(&self) -> bool {
-            !self.diagnostics.is_empty()
-        }
-    }
 
     fn execute_tests(reporter: &mut TestReporter, tests: &Vec<(&str, Vec<Token>)>) {
         for (source, expected_tokens) in tests {
@@ -647,6 +593,16 @@ mod test {
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 6),
                     token::Literal::None,
+                )],
+            ),
+            (
+                "false",
+                vec![token::Token::new(
+                    token::TokenType::False,
+                    "false",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 5),
+                    token::Literal::False,
                 )],
             ),
         ];

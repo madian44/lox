@@ -7,3 +7,4 @@ lox-vsce/out
 lox-wasm/target
 lox/target
 lox/Cargo.lock
+*.profraw

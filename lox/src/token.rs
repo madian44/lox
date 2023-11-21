@@ -51,8 +51,6 @@ pub enum TokenType {
     While,
 
     Eof,
-
-    Unimplemented, // remove this
 }
 
 pub struct Keywords<'a> {
@@ -92,6 +90,18 @@ pub enum Literal {
     None,
     String(String),
     Number(f64),
+    True,
+    False,
+    Nil,
+}
+
+pub fn get_keyword_literal(token_type: &TokenType) -> Literal {
+    match token_type {
+        TokenType::False => Literal::False,
+        TokenType::True => Literal::True,
+        TokenType::Nil => Literal::Nil,
+        _ => Literal::None,
+    }
 }
 
 #[derive(Debug, PartialEq)]
