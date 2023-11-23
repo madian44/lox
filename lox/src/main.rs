@@ -65,9 +65,7 @@ fn run_prompt() {
                     break;
                 }
                 reporter.reset();
-                for token in lox::run(&mut reporter, trimmed_line) {
-                    println!("{token}");
-                }
+                lox::run(&mut reporter, trimmed_line);
             }
         }
     }
@@ -81,7 +79,5 @@ fn run_file(filepath: &str) {
         return;
     }
     let mut reporter = MainReporter { has_errors: false };
-    for token in lox::run(&mut reporter, &contents.unwrap()) {
-        println!("{token}");
-    }
+    lox::run(&mut reporter, &contents.unwrap());
 }

@@ -32,6 +32,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	addScanLoxCommand(context, diagnostics);
 	addScanSelectedLoxCommand(context, diagnostics);
+	addParseSelectedLoxCommand(context, diagnostics);
 }
 
 function addScanLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
@@ -48,6 +49,15 @@ function addScanLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode
 	});
 }
 
+function getSelectedText(activeEditor: vscode.TextEditor) : [string, vscode.Selection] {
+	const selection = activeEditor.selection;
+	if( !selection || selection.isEmpty) {
+		return ["", selection];
+	}
+	const selectionRange = new vscode.Range(selection.start.line, selection.start.character, selection.end.line, selection.end.character);
+	return [activeEditor.document.getText(selectionRange), selection];
+}
+
 function addScanSelectedLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
 
 	defineCommand(context, "lox-vsce.scanSelectedLox", () => {
@@ -55,14 +65,32 @@ function addScanSelectedLoxCommand(context: vscode.ExtensionContext, diagnostics
 		if(!activeEditor) {
 			return;
 		}
-		const selection = activeEditor.selection;
+
+		const [contents , selection] = getSelectedText(activeEditor);
 		if( !selection || selection.isEmpty) {
 			return;
 		}
-		const selectionRange = new vscode.Range(selection.start.line, selection.start.character, selection.end.line, selection.end.character);
-		const contents = activeEditor.document.getText(selectionRange);
+
 		const diagnosticCollection : vscode.Diagnostic[] = [];
-		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
+		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
+		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
+	});
+}
+
+function addParseSelectedLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
+
+	defineCommand(context, "lox-vsce.parseSelectedLox", () => {
+		const activeEditor = vscode.window.activeTextEditor;
+		if(!activeEditor) {
+			return;
+		}
+
+		const [contents , selection] = getSelectedText(activeEditor);
+		if( !selection || selection.isEmpty) {
+			return;
+		}
+		const diagnosticCollection : vscode.Diagnostic[] = [];
+		wasm.parse(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
 	});
 }
@@ -72,9 +100,20 @@ function defineCommand(context: vscode.ExtensionContext, commandName: string, ca
 	context.subscriptions.push(command);
 }
 
-function diagnosticAdder(coll: vscode.Diagnostic[])  {
+function diagnosticAdder(collection: vscode.Diagnostic[], startLine: number = 0, startCharacter: number = 0)  {
+	let firstDiagnostic = true;
+
 	return (start: FileLocation, end: FileLocation, message: string) => {
-		coll.push(createDiagnostic(start, end, message));
+		start.line_number += startLine;
+		end.line_number += startLine;
+		if(firstDiagnostic && startCharacter !== 0) {
+			start.line_offset += startCharacter;
+			if(start.line_number === end.line_number) {
+				end.line_offset += startCharacter;
+			}
+		}
+		firstDiagnostic = false;
+		collection.push(createDiagnostic(start, end, message));
 	};
 }
 

@@ -1,4 +1,3 @@
-use lox::Reporter;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -81,6 +80,28 @@ pub fn scan(
     js_report_message: js_sys::Function,
     js_report_diagnostic: js_sys::Function,
 ) {
+    let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
+
+    console_log(&format!("scanning {text}"));
+    lox::scan(&mut reporter, text);
+}
+
+#[wasm_bindgen]
+pub fn parse(
+    text: &str,
+    js_report_message: js_sys::Function,
+    js_report_diagnostic: js_sys::Function,
+) {
+    let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
+
+    console_log(&format!("scanning {text}"));
+    lox::parse(&mut reporter, text);
+}
+
+fn build_reporter(
+    js_report_message: js_sys::Function,
+    js_report_diagnostic: js_sys::Function,
+) -> WasmReporter {
     let this_message = JsValue::null();
     let this_diagnostic = JsValue::null();
     let report_message = Box::new(move |message: &str| {
@@ -98,11 +119,5 @@ pub fn scan(
         },
     );
 
-    let mut reporter = WasmReporter::build(report_message, report_diagnostic);
-
-    console_log(&format!("scanning {text}"));
-    let tokens = lox::run(&mut reporter, text);
-    for token in tokens {
-        reporter.add_message(&format!("[Token]: {token}"));
-    }
+    WasmReporter::build(report_message, report_diagnostic)
 }

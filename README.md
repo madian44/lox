@@ -23,6 +23,11 @@ Pretty basic at the moment:
     $ cd lox-vsce
     $ make build
 
+For coverage `grcov` and `llvm-tools-preview` are required:
+
+    $ cargo install grcov
+    $ rustup component add llvm-tools-preview 
+
 ## Installing
 
     $ code --install-extension lox-vsce-<version>.vsix
@@ -47,7 +52,8 @@ Typescript `vsce` extension.
 
 ## Progress through the book...
 
-### Current
+### Implemented
 
-Chapter 4 Scanning
-Chapter 5 Representing Code
+ * Chapter 4 Scanning
+ * Chapter 5 Representing Code
+ * Chapter 6 Parsing Expressions
