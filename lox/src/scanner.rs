@@ -1,10 +1,14 @@
 use crate::location;
 use crate::reporter;
 use crate::token;
+use std::collections::LinkedList;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-pub fn scan_tokens(reporter: &mut dyn reporter::Reporter, source: &str) -> Vec<token::Token> {
+pub fn scan_tokens(
+    reporter: &mut dyn reporter::Reporter,
+    source: &str,
+) -> LinkedList<token::Token> {
     let mut scanner = Scanner::build();
     scanner.scan(reporter, source)
 }
@@ -32,8 +36,12 @@ impl<'k> Scanner<'k> {
         }
     }
 
-    fn scan(&mut self, reporter: &mut dyn reporter::Reporter, source: &str) -> Vec<token::Token> {
-        let mut tokens = Vec::new();
+    fn scan(
+        &mut self,
+        reporter: &mut dyn reporter::Reporter,
+        source: &str,
+    ) -> LinkedList<token::Token> {
+        let mut tokens = LinkedList::new();
         let mut char_indices = source.char_indices().peekable();
         loop {
             self.token_start_line_offset = self.current_line_offset;
@@ -42,14 +50,14 @@ impl<'k> Scanner<'k> {
                 self.start_of_token = i;
                 self.current_end_of_token = i;
                 if let Some(token) = self.parse_character(reporter, source, &mut char_indices, c) {
-                    tokens.push(token);
+                    tokens.push_back(token);
                 }
             } else {
                 break;
             }
         }
         self.start_of_token = self.current_end_of_token;
-        tokens.push(self.build_token(token::TokenType::Eof, source));
+        tokens.push_back(self.build_token(token::TokenType::Eof, source));
         tokens
     }
 
@@ -310,7 +318,7 @@ mod test {
     fn execute_tests(reporter: &mut TestReporter, tests: &Vec<(&str, Vec<Token>)>) {
         for (source, expected_tokens) in tests {
             reporter.reset();
-            let tokens = scan_tokens(reporter, source);
+            let mut tokens = scan_tokens(reporter, source);
             assert!(!reporter.has_messages(), "Unexpected messages reported");
             assert!(
                 !reporter.has_diagnostics(),
@@ -321,12 +329,14 @@ mod test {
                 expected_tokens.len() + 1, // always expect end of file
                 "Incorrect tokens returned"
             );
-            for (i, expected_token) in expected_tokens.iter().enumerate() {
-                let token = &tokens[i];
-                assert_eq!(*token, *expected_token, "Unexpected token returned");
-            }
-            let last_token = tokens.last().unwrap();
+
+            let last_token = tokens.back().unwrap();
             assert_eq!(last_token.token_type, token::TokenType::Eof);
+
+            for expected_token in expected_tokens.iter() {
+                let token = tokens.pop_front();
+                assert_eq!(token.unwrap(), *expected_token, "Unexpected token returned");
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 use crate::{expr, location, reporter, token};
+use std::collections::linked_list::IntoIter;
+use std::collections::LinkedList;
 use std::iter::Peekable;
-use std::vec::IntoIter;
 
 type TokenIterator = Peekable<IntoIter<token::Token>>;
 pub struct ParseError {
@@ -9,7 +10,7 @@ pub struct ParseError {
 
 pub fn parse(
     reporter: &mut dyn reporter::Reporter,
-    tokens: Vec<token::Token>,
+    tokens: LinkedList<token::Token>,
 ) -> Option<expr::Expr> {
     let mut parser = Parser::new();
 
@@ -89,7 +90,7 @@ impl Parser {
     fn parse(
         &mut self,
         reporter: &mut dyn reporter::Reporter,
-        tokens: Vec<token::Token>,
+        tokens: LinkedList<token::Token>,
     ) -> Result<expr::Expr, ParseError> {
         let mut tokens = tokens.into_iter().peekable();
         let data = Data::new();
@@ -527,6 +528,8 @@ mod test {
 
         for (expected_parse, tokens) in tests {
             reporter.reset();
+
+            let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
             match parse(&mut reporter, tokens) {
                 Some(expr) => assert_eq!(ast_printer::print(&expr), expected_parse),
                 _ => {
@@ -587,6 +590,7 @@ mod test {
 
         for (expected_message, tokens) in tests {
             reporter.reset();
+            let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
             if let Some(expr) = parse(&mut reporter, tokens) {
                 panic!("Unexpected expression found: {}", ast_printer::print(&expr));
             };
