@@ -1,10 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+- Implementation of Evaluating Expressions chapter.
+ 
 ## 0.6.0
 
 ### Added
 - Implementation of Parsing Expressions chapter.
-- 
+ 
 ## 0.5.0
 
 ### Added

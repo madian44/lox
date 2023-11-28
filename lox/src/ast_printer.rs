@@ -22,8 +22,8 @@ fn print_grouping(expression: &expr::Expr) -> String {
     parenthesize("group", vec![expression])
 }
 
-fn print_literal(value: &token::Literal) -> String {
-    let value = match value {
+fn print_literal(value: &token::Token) -> String {
+    let value = match &value.literal {
         token::Literal::Number(n) => n.to_string(),
         token::Literal::String(s) => s.to_string(),
         token::Literal::None => "None".to_string(),
@@ -68,7 +68,13 @@ mod test {
                     blank_location,
                     token::Literal::None,
                 ),
-                expr::Expr::build_literal(token::Literal::Number(123.0)),
+                expr::Expr::build_literal(token::Token::new(
+                    token::TokenType::Number,
+                    "123.0",
+                    blank_location,
+                    blank_location,
+                    token::Literal::Number(123.0),
+                )),
             ),
             token::Token::new(
                 token::TokenType::Star,
@@ -77,7 +83,13 @@ mod test {
                 blank_location,
                 token::Literal::None,
             ),
-            expr::Expr::build_grouping(expr::Expr::build_literal(token::Literal::Number(45.67))),
+            expr::Expr::build_grouping(expr::Expr::build_literal(token::Token::new(
+                token::TokenType::Number,
+                "45.67",
+                blank_location,
+                blank_location,
+                token::Literal::Number(45.67),
+            ))),
         );
 
         let result = print(&expression);

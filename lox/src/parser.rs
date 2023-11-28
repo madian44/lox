@@ -200,9 +200,7 @@ impl Parser {
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
         if self.match_next_token(tokens, &data.primary_tokens) {
-            return Ok(expr::Expr::build_literal(
-                self.take_current_token()?.literal,
-            ));
+            return Ok(expr::Expr::build_literal(self.take_current_token()?));
         }
 
         if self.match_next_token(tokens, &data.start_of_group_tokens) {

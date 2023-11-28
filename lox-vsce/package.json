@@ -2,7 +2,7 @@
   "name": "lox-vsce",
   "displayName": "lox-vsce",
   "description": "",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "engines": {
     "vscode": "^1.84.0"
   },
@@ -44,6 +44,10 @@
         {
           "command": "lox-vsce.parseSelectedLox",
           "when": "editorLangId == lox && editorHasSelection"
+        },
+        {
+          "command": "lox-vsce.interpretSelectedLox",
+          "when": "editorLangId == lox && editorHasSelection"
         }
       ]
     },
@@ -63,6 +67,10 @@
       {
         "command": "lox-vsce.parseSelectedLox",
         "title": "Lox: Parse Selected Expression"
+      },
+      {
+        "command": "lox-vsce.interpretSelectedLox",
+        "title": "Lox: Interpret Selected Expression"
       }
     ]
   },

@@ -33,6 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
 	addScanLoxCommand(context, diagnostics);
 	addScanSelectedLoxCommand(context, diagnostics);
 	addParseSelectedLoxCommand(context, diagnostics);
+	addInterpretSelectedLoxCommand(context, diagnostics);
 }
 
 function addScanLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
@@ -91,6 +92,24 @@ function addParseSelectedLoxCommand(context: vscode.ExtensionContext, diagnostic
 		}
 		const diagnosticCollection : vscode.Diagnostic[] = [];
 		wasm.parse(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
+		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
+	});
+}
+
+function addInterpretSelectedLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
+
+	defineCommand(context, "lox-vsce.interpretSelectedLox", () => {
+		const activeEditor = vscode.window.activeTextEditor;
+		if(!activeEditor) {
+			return;
+		}
+
+		const [contents , selection] = getSelectedText(activeEditor);
+		if( !selection || selection.isEmpty) {
+			return;
+		}
+		const diagnosticCollection : vscode.Diagnostic[] = [];
+		wasm.interpret(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
 	});
 }

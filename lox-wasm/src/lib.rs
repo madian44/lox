@@ -82,7 +82,7 @@ pub fn scan(
 ) {
     let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
 
-    console_log(&format!("scanning {text}"));
+    console_log(&format!("scanning: {text}"));
     lox::scan(&mut reporter, text);
 }
 
@@ -94,8 +94,20 @@ pub fn parse(
 ) {
     let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
 
-    console_log(&format!("scanning {text}"));
+    console_log(&format!("parsing: {text}"));
     lox::parse(&mut reporter, text);
+}
+
+#[wasm_bindgen]
+pub fn interpret(
+    text: &str,
+    js_report_message: js_sys::Function,
+    js_report_diagnostic: js_sys::Function,
+) {
+    let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
+
+    console_log(&format!("interpreting: {text}"));
+    lox::interpret(&mut reporter, text);
 }
 
 fn build_reporter(

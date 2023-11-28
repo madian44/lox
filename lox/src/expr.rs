@@ -1,5 +1,6 @@
 use crate::token;
 
+#[derive(Debug)]
 pub enum Expr {
     Binary {
         left: Box<Expr>,
@@ -10,7 +11,7 @@ pub enum Expr {
         expression: Box<Expr>,
     },
     Literal {
-        value: token::Literal,
+        value: token::Token,
     },
     Unary {
         operator: token::Token,
@@ -33,7 +34,7 @@ impl Expr {
         }
     }
 
-    pub fn build_literal(value: token::Literal) -> Self {
+    pub fn build_literal(value: token::Token) -> Self {
         Expr::Literal { value }
     }
 
