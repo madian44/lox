@@ -13,3 +13,6 @@ Scan the selected text
 
 ## 'Lox: Parse Selected Expression
 Parse the selected expression
+
+## 'Lox: Interpret Selected Expression
+Interpret the selected expression

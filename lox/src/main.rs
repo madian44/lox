@@ -1,3 +1,4 @@
+use lox::Reporter;
 use std::env;
 use std::fs;
 use std::io;
@@ -35,7 +36,7 @@ impl lox::Reporter for MainReporter {
     ) {
         self.has_errors = true;
         println!(
-            "Diagnostic: [{0}:{1} {2}:{3}]{4}",
+            "Diagnostic: [{0}:{1} {2}:{3}] {4}",
             start.line_number, start.line_offset, end.line_number, end.line_offset, message
         );
     }
@@ -80,4 +81,7 @@ fn run_file(filepath: &str) {
     }
     let mut reporter = MainReporter { has_errors: false };
     lox::run(&mut reporter, &contents.unwrap());
+    if reporter.has_diagnostics() {
+        process::exit(70);
+    }
 }

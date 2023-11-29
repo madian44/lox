@@ -14,8 +14,8 @@ test:
 	cargo test -- --nocapture
 
 coverage:
-	rm lox*profraw
+	rm -f lox*profraw
 	rm -rf target/debug/coverage
-	export RUSTFLAGS="-Cinstrument-coverage" ; export LLVM_PROFILE_FILE="lox-%p-%m.profraw" ; cargo build ; cargo test
+	export RUSTFLAGS="-Cinstrument-coverage" ; export LLVM_PROFILE_FILE="lox-%p-%Nm.profraw" ; cargo test
 	grcov . -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existing -o ./target/debug/coverage/
 	# firefox target/debug/coverage/index.html
