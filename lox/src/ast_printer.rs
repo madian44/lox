@@ -1,7 +1,13 @@
-use crate::expr;
-use crate::token;
+use crate::{expr, stmt, token};
 
-pub fn print(expr: &expr::Expr) -> String {
+pub fn print_stmt(stmt: &stmt::Stmt) -> String {
+    match stmt {
+        stmt::Stmt::Expression { expression } => format!("{} ;", print_expr(expression)),
+        stmt::Stmt::Print { value } => format!("PRINT {} ;", print_expr(value)),
+    }
+}
+
+pub fn print_expr(expr: &expr::Expr) -> String {
     match expr {
         expr::Expr::Binary {
             left,
@@ -43,7 +49,7 @@ fn parenthesize(name: &str, exprs: Vec<&expr::Expr>) -> String {
     output.push_str(name);
     for expr in exprs {
         output.push(' ');
-        output.push_str(&print(expr))
+        output.push_str(&print_expr(expr))
     }
 
     output.push(')');
@@ -92,8 +98,10 @@ mod test {
             ))),
         );
 
-        let result = print(&expression);
+        let statement = stmt::Stmt::Print { value: expression };
 
-        assert_eq!("(* (- (123)) (group (45.67)))", result);
+        let result = print_stmt(&statement);
+
+        assert_eq!("PRINT (* (- (123)) (group (45.67))) ;", result);
     }
 }

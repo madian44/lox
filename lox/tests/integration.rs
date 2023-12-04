@@ -6,33 +6,34 @@ use lox::Reporter;
 fn test_expression() {
     let mut reporter = common::TestReporter::build();
     let tests = vec![
-        ("\"hello,\" + \" world\"", "[interpreter] hello, world"),
-        ("10 + 10", "[interpreter] 20"),
-        ("10 - 5", "[interpreter] 5"),
-        ("10 > 5", "[interpreter] true"),
-        ("5 > 5", "[interpreter] false"),
-        ("5 >= 5", "[interpreter] true"),
-        ("\"a string\"", "[interpreter] a string"),
-        ("10.5", "[interpreter] 10.5"),
-        ("true", "[interpreter] true"),
-        ("false", "[interpreter] false"),
-        ("nil", "[interpreter] nil"),
-        ("!true", "[interpreter] false"),
-        ("!!true", "[interpreter] true"),
-        ("-3.45", "[interpreter] -3.45"),
-        ("5 == 5", "[interpreter] true"),
-        ("5 == 4", "[interpreter] false"),
-        ("\"hello\" == \"hello\"", "[interpreter] true"),
-        ("\"hello\" == \"world\"", "[interpreter] false"),
-        ("4 / 4", "[interpreter] 1"),
-        ("6 / 4", "[interpreter] 1.5"),
-        ("2 * 2", "[interpreter] 4"),
-        ("5 < 5", "[interpreter] false"),
-        ("5 <= 5", "[interpreter] true"),
-        ("(5 <= 5)", "[interpreter] true"),
-        ("!\"string\"", "[interpreter] false"),
-        ("!!\"string\"", "[interpreter] true"),
-        ("((10 - 5) + 1) / (2 * 3)", "[interpreter] 1"),
+        ("\"hello,\" + \" world\";", "[interpreter] hello, world"),
+        ("10 + 10;", "[interpreter] 20"),
+        ("10 - 5;", "[interpreter] 5"),
+        ("10 > 5;", "[interpreter] true"),
+        ("5 > 5;", "[interpreter] false"),
+        ("5 >= 5;", "[interpreter] true"),
+        ("\"a string\";", "[interpreter] a string"),
+        ("10.5 ;", "[interpreter] 10.5"),
+        ("true ;", "[interpreter] true"),
+        ("false ;", "[interpreter] false"),
+        ("nil ;", "[interpreter] nil"),
+        ("!true ;", "[interpreter] false"),
+        ("!!true ;", "[interpreter] true"),
+        ("-3.45 ;", "[interpreter] -3.45"),
+        ("5 == 5 ;", "[interpreter] true"),
+        ("5 == 4 ;", "[interpreter] false"),
+        ("\"hello\" == \"hello\";", "[interpreter] true"),
+        ("\"hello\" == \"world\";", "[interpreter] false"),
+        ("4 / 4;", "[interpreter] 1"),
+        ("6 / 4;", "[interpreter] 1.5"),
+        ("2 * 2;", "[interpreter] 4"),
+        ("5 < 5;", "[interpreter] false"),
+        ("5 <= 5;", "[interpreter] true"),
+        ("(5 <= 5);", "[interpreter] true"),
+        ("!\"string\";", "[interpreter] false"),
+        ("!!\"string\";", "[interpreter] true"),
+        ("((10 - 5) + 1) / (2 * 3);", "[interpreter] 1"),
+        ("print ((10 - 5) + 1) / (2 * 3);", "[print] 1"),
     ];
 
     for (expression, expected_message) in tests {
@@ -51,7 +52,7 @@ fn test_failures() {
     let mut reporter = common::TestReporter::build();
     let tests = vec![
         (
-            "\"hello,\" + 10",
+            "\"hello,\" + 10 ;",
             common::Diagnostic {
                 start: lox::FileLocation {
                     line_number: 0,
@@ -65,7 +66,7 @@ fn test_failures() {
             },
         ),
         (
-            "\"hello\" - true",
+            "\"hello\" - true ; ",
             common::Diagnostic {
                 start: lox::FileLocation {
                     line_number: 0,
@@ -79,7 +80,7 @@ fn test_failures() {
             },
         ),
         (
-            "((10 - 5) + 1) / (2 * \"fred\")",
+            "((10 - 5) + 1) / (2 * \"fred\") ;",
             common::Diagnostic {
                 start: lox::FileLocation {
                     line_number: 0,

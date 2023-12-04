@@ -1,34 +1,46 @@
-use crate::expr;
-use crate::location;
-use crate::lox_type;
-use crate::reporter;
-use crate::token;
+use crate::{expr, location, lox_type, reporter, stmt, token};
+use std::collections::LinkedList;
 
 #[derive(Debug, PartialEq)]
 struct RuntimeError {
     message: String,
 }
 
-pub fn interpret(
-    reporter: &dyn reporter::Reporter,
-    expression: &expr::Expr,
-) -> Option<lox_type::LoxType> {
-    match evalute(reporter, expression) {
-        Err(err) => {
+pub fn interpret(reporter: &dyn reporter::Reporter, statements: LinkedList<stmt::Stmt>) {
+    for statement in statements {
+        if let Err(err) = evalute_stmt(reporter, &statement) {
             reporter.add_message(&err.message);
-            None
         }
-        Ok(t) => Some(t),
     }
 }
 
-fn evalute(
+fn evalute_stmt(
+    reporter: &dyn reporter::Reporter,
+    statement: &stmt::Stmt,
+) -> Result<(), RuntimeError> {
+    match statement {
+        stmt::Stmt::Print { value } => {
+            let result = evalute_expr(reporter, value)?;
+            reporter.add_message(&format!("[print] {}", result));
+            Ok(())
+        }
+        stmt::Stmt::Expression { expression } => match evalute_expr(reporter, expression) {
+            Ok(r) => {
+                reporter.add_message(&format!("[interpreter] {r}"));
+                Ok(())
+            }
+            Err(err) => Err(err),
+        },
+    }
+}
+
+fn evalute_expr(
     reporter: &dyn reporter::Reporter,
     expression: &expr::Expr,
 ) -> Result<lox_type::LoxType, RuntimeError> {
     match expression {
         expr::Expr::Literal { value } => evaluate_literal(reporter, expression, value),
-        expr::Expr::Grouping { expression } => evalute(reporter, expression),
+        expr::Expr::Grouping { expression } => evalute_expr(reporter, expression),
         expr::Expr::Unary { operator, right } => {
             evalute_unary(reporter, expression, operator, right)
         }
@@ -96,7 +108,7 @@ fn evalute_unary(
     operator: &token::Token,
     right: &expr::Expr,
 ) -> Result<lox_type::LoxType, RuntimeError> {
-    let right = evalute(reporter, right)?;
+    let right = evalute_expr(reporter, right)?;
     match operator.token_type {
         token::TokenType::Minus => {
             let right = check_number_operand(reporter, expression, &right)?;
@@ -114,8 +126,8 @@ fn evalute_binary(
     operator: &token::Token,
     right: &expr::Expr,
 ) -> Result<lox_type::LoxType, RuntimeError> {
-    let left = evalute(reporter, left)?;
-    let right = evalute(reporter, right)?;
+    let left = evalute_expr(reporter, left)?;
+    let right = evalute_expr(reporter, right)?;
 
     if matches!(operator.token_type, token::TokenType::Plus) {
         if matches!(right, lox_type::LoxType::Number(_))
@@ -523,10 +535,10 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&reporter, expr),
+                evalute_expr(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
+                ast_printer::print_expr(expr),
                 expected_result
             );
         }
@@ -601,10 +613,10 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&reporter, expr),
+                evalute_expr(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
+                ast_printer::print_expr(expr),
                 expected_result
             );
         }
@@ -679,10 +691,10 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&reporter, expr),
+                evalute_expr(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
+                ast_printer::print_expr(expr),
                 expected_result
             );
         }
@@ -739,10 +751,10 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&reporter, expr),
+                evalute_expr(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
+                ast_printer::print_expr(expr),
                 expected_result
             );
         }
@@ -779,10 +791,10 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&reporter, expr),
+                evalute_expr(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
+                ast_printer::print_expr(expr),
                 expected_result
             );
         }

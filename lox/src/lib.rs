@@ -6,6 +6,7 @@ mod lox_type;
 mod parser;
 mod reporter;
 mod scanner;
+mod stmt;
 mod token;
 
 pub use crate::location::FileLocation;
@@ -31,8 +32,8 @@ pub fn parse(reporter: &dyn reporter::Reporter, source: &str) {
         reporter.add_message("[parser] not parsing due to scan errors");
         return;
     }
-    if let Some(expr) = parser::parse(reporter, tokens) {
-        reporter.add_message(&format!("[expr] {}", ast_printer::print(&expr)));
+    for stmt in &parser::parse(reporter, tokens) {
+        reporter.add_message(&format!("[expr] {}", ast_printer::print_stmt(stmt)));
     }
 }
 
@@ -46,18 +47,16 @@ pub fn interpret(reporter: &dyn reporter::Reporter, source: &str) {
         return;
     }
 
-    let parse = parser::parse(reporter, tokens);
+    let statements = parser::parse(reporter, tokens);
 
     if reporter.has_diagnostics() {
         reporter.add_message("[interpreter] not interpreting due to parsing errors");
         return;
     }
 
-    if let Some(expr) = parse {
-        reporter.add_message(&format!("[expr] {}", ast_printer::print(&expr)));
-
-        if let Some(lox_type) = interpreter::interpret(reporter, &expr) {
-            reporter.add_message(&format!("[interpreter] {}", lox_type));
-        }
+    for stmt in &statements {
+        reporter.add_message(&format!("[expr] {}", ast_printer::print_stmt(stmt)));
     }
+
+    interpreter::interpret(reporter, statements);
 }

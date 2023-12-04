@@ -1,4 +1,4 @@
-use crate::{expr, location, reporter, token};
+use crate::{expr, location, reporter, stmt, token};
 use std::collections::linked_list::IntoIter;
 use std::collections::LinkedList;
 use std::iter::Peekable;
@@ -11,16 +11,10 @@ pub struct ParseError {
 pub fn parse(
     reporter: &dyn reporter::Reporter,
     tokens: LinkedList<token::Token>,
-) -> Option<expr::Expr> {
+) -> LinkedList<stmt::Stmt> {
     let mut parser = Parser::new();
 
-    let result = parser.parse(reporter, tokens);
-    if let Err(e) = &result {
-        reporter.add_message(&format!("[parser] {}", e.message));
-        None
-    } else {
-        result.ok()
-    }
+    parser.parse(reporter, tokens)
 }
 
 struct Data {
@@ -31,6 +25,7 @@ struct Data {
     unary_tokens: Vec<token::TokenType>,
     primary_tokens: Vec<token::TokenType>,
     start_of_group_tokens: Vec<token::TokenType>,
+    print_tokens: Vec<token::TokenType>,
 }
 
 impl Data {
@@ -53,6 +48,7 @@ impl Data {
             token::TokenType::String,
         ];
         let start_of_group_tokens = vec![token::TokenType::LeftParen];
+        let print_tokens = vec![token::TokenType::Print];
         Data {
             equality_tokens,
             comparison_tokens,
@@ -61,6 +57,7 @@ impl Data {
             unary_tokens,
             primary_tokens,
             start_of_group_tokens,
+            print_tokens,
         }
     }
 }
@@ -91,15 +88,64 @@ impl Parser {
         &mut self,
         reporter: &dyn reporter::Reporter,
         tokens: LinkedList<token::Token>,
-    ) -> Result<expr::Expr, ParseError> {
+    ) -> LinkedList<stmt::Stmt> {
         let mut tokens = tokens.into_iter().peekable();
         let data = Data::new();
-        if self.is_at_end(&mut tokens) {
-            return Err(ParseError {
-                message: "Nothing to parse".to_string(),
-            });
+
+        let mut statements = LinkedList::new();
+        if !self.is_at_end(&mut tokens) {
+            match self.statement(reporter, &mut tokens, &data) {
+                Ok(stmt) => statements.push_back(stmt),
+                Err(err) => reporter.add_message(&err.message),
+            }
         }
-        self.expression(reporter, &mut tokens, &data)
+
+        statements
+    }
+
+    fn statement(
+        &mut self,
+        reporter: &dyn reporter::Reporter,
+        tokens: &mut TokenIterator,
+        data: &Data,
+    ) -> Result<stmt::Stmt, ParseError> {
+        if self.match_next_token(tokens, &data.print_tokens) {
+            self.print_statement(reporter, tokens, data)
+        } else {
+            self.expression_statement(reporter, tokens, data)
+        }
+    }
+
+    fn print_statement(
+        &mut self,
+        reporter: &dyn reporter::Reporter,
+        tokens: &mut TokenIterator,
+        data: &Data,
+    ) -> Result<stmt::Stmt, ParseError> {
+        let value = self.expression(reporter, tokens, data)?;
+        self.consume(
+            reporter,
+            tokens,
+            &token::TokenType::Semicolon,
+            "Expect ';' after value",
+        )?;
+        Ok(stmt::Stmt::Print { value })
+    }
+
+    fn expression_statement(
+        &mut self,
+        reporter: &dyn reporter::Reporter,
+        tokens: &mut TokenIterator,
+        data: &Data,
+    ) -> Result<stmt::Stmt, ParseError> {
+        let expression = self.expression(reporter, tokens, data)?;
+        self.consume(
+            reporter,
+            tokens,
+            &token::TokenType::Semicolon,
+            "Expect ';' after expression",
+        )?;
+        Ok(stmt::Stmt::Expression { expression })
     }
 
     fn expression(
@@ -343,17 +389,26 @@ mod test {
 
         let tests = vec![
             (
-                "(a string)",
-                vec![token::Token::new(
-                    token::TokenType::String,
-                    "\"a string\"",
-                    blank_location,
-                    blank_location,
-                    token::Literal::String("a string".to_string()),
-                )],
+                "(a string) ;",
+                vec![
+                    token::Token::new(
+                        token::TokenType::String,
+                        "\"a string\"",
+                        blank_location,
+                        blank_location,
+                        token::Literal::String("a string".to_string()),
+                    ),
+                    token::Token::new(
+                        token::TokenType::Semicolon,
+                        ";",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
+                ],
             ),
             (
-                "(+ (a string) (10))",
+                "(+ (a string) (10)) ;",
                 vec![
                     token::Token::new(
                         token::TokenType::String,
@@ -376,10 +431,17 @@ mod test {
                         blank_location,
                         token::Literal::Number(10f64),
                     ),
+                    token::Token::new(
+                        token::TokenType::Semicolon,
+                        ";",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
                 ],
             ),
             (
-                "(group (+ (a string) (10)))",
+                "(group (+ (a string) (10))) ;",
                 vec![
                     token::Token::new(
                         token::TokenType::LeftParen,
@@ -416,11 +478,25 @@ mod test {
                         blank_location,
                         token::Literal::None,
                     ),
+                    token::Token::new(
+                        token::TokenType::Semicolon,
+                        ";",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
                 ],
             ),
             (
-                "(== (10) (11))",
+                "PRINT (== (10) (11)) ;",
                 vec![
+                    token::Token::new(
+                        token::TokenType::Print,
+                        "print",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
                     token::Token::new(
                         token::TokenType::Number,
                         "10",
@@ -442,10 +518,17 @@ mod test {
                         blank_location,
                         token::Literal::Number(11f64),
                     ),
+                    token::Token::new(
+                        token::TokenType::Semicolon,
+                        ";",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
                 ],
             ),
             (
-                "(> (10) (11))",
+                "(> (10) (11)) ;",
                 vec![
                     token::Token::new(
                         token::TokenType::Number,
@@ -468,10 +551,17 @@ mod test {
                         blank_location,
                         token::Literal::Number(11f64),
                     ),
+                    token::Token::new(
+                        token::TokenType::Semicolon,
+                        ";",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
                 ],
             ),
             (
-                "(* (10) (11))",
+                "(* (10) (11)) ;",
                 vec![
                     token::Token::new(
                         token::TokenType::Number,
@@ -494,10 +584,17 @@ mod test {
                         blank_location,
                         token::Literal::Number(11f64),
                     ),
+                    token::Token::new(
+                        token::TokenType::Semicolon,
+                        ";",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
                 ],
             ),
             (
-                "(! (! (10)))",
+                "(! (! (10))) ;",
                 vec![
                     token::Token::new(
                         token::TokenType::Bang,
@@ -520,6 +617,13 @@ mod test {
                         blank_location,
                         token::Literal::Number(10f64),
                     ),
+                    token::Token::new(
+                        token::TokenType::Semicolon,
+                        ";",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
                 ],
             ),
         ];
@@ -528,13 +632,13 @@ mod test {
             reporter.reset();
 
             let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
-            match parse(&reporter, tokens) {
-                Some(expr) => assert_eq!(ast_printer::print(&expr), expected_parse),
-                _ => {
-                    reporter.print_contents();
-                    panic!("unexpected failure")
-                }
-            };
+            let statements = parse(&reporter, tokens);
+            assert_eq!(statements.len(), 1);
+            let parse = ast_printer::print_stmt(statements.front().unwrap());
+            if parse != expected_parse {
+                reporter.print_contents();
+                assert_eq!(parse, expected_parse);
+            }
             assert!(!reporter.has_diagnostics());
         }
     }
@@ -584,13 +688,46 @@ mod test {
                     ),
                 ],
             ),
+            (
+                "Expect ';' after value",
+                vec![
+                    token::Token::new(
+                        token::TokenType::Print,
+                        "print",
+                        blank_location,
+                        blank_location,
+                        token::Literal::None,
+                    ),
+                    token::Token::new(
+                        token::TokenType::Number,
+                        "\"10\"",
+                        blank_location,
+                        blank_location,
+                        token::Literal::Number(10f64),
+                    ),
+                ],
+            ),
+            (
+                "Expect ';' after expression",
+                vec![token::Token::new(
+                    token::TokenType::Number,
+                    "\"10\"",
+                    blank_location,
+                    blank_location,
+                    token::Literal::Number(10f64),
+                )],
+            ),
         ];
 
         for (expected_message, tokens) in tests {
             reporter.reset();
             let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
-            if let Some(expr) = parse(&reporter, tokens) {
-                panic!("Unexpected expression found: {}", ast_printer::print(&expr));
+            let statements = parse(&reporter, tokens);
+            if !statements.is_empty() {
+                panic!(
+                    "Unexpected statement found: {}",
+                    ast_printer::print_stmt(statements.front().unwrap())
+                );
             };
             assert!(reporter.has_diagnostics());
             assert_eq!(reporter.diagnostics_len(), 1);
