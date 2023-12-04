@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(module = "vscode")]
@@ -32,7 +33,7 @@ type DiagnosticReporter = Box<dyn Fn(&lox::FileLocation, &lox::FileLocation, &st
 struct WasmReporter {
     message_reporter: MessageReporter,
     diagnostic_reporter: DiagnosticReporter,
-    has_errors: bool,
+    has_errors: RefCell<bool>,
 }
 
 impl WasmReporter {
@@ -40,28 +41,23 @@ impl WasmReporter {
         WasmReporter {
             message_reporter,
             diagnostic_reporter,
-            has_errors: false,
+            has_errors: RefCell::new(false),
         }
     }
 }
 
 impl lox::Reporter for WasmReporter {
-    fn add_diagnostic(
-        &mut self,
-        start: &lox::FileLocation,
-        end: &lox::FileLocation,
-        message: &str,
-    ) {
-        self.has_errors = true;
+    fn add_diagnostic(&self, start: &lox::FileLocation, end: &lox::FileLocation, message: &str) {
+        *self.has_errors.borrow_mut() = true;
         (self.diagnostic_reporter)(start, end, message);
     }
 
-    fn add_message(&mut self, message: &str) {
+    fn add_message(&self, message: &str) {
         (self.message_reporter)(message);
     }
 
     fn has_diagnostics(&self) -> bool {
-        self.has_errors
+        *self.has_errors.borrow()
     }
 }
 
@@ -80,10 +76,10 @@ pub fn scan(
     js_report_message: js_sys::Function,
     js_report_diagnostic: js_sys::Function,
 ) {
-    let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
+    let reporter = build_reporter(js_report_message, js_report_diagnostic);
 
     console_log(&format!("scanning: {text}"));
-    lox::scan(&mut reporter, text);
+    lox::scan(&reporter, text);
 }
 
 #[wasm_bindgen]
@@ -92,10 +88,10 @@ pub fn parse(
     js_report_message: js_sys::Function,
     js_report_diagnostic: js_sys::Function,
 ) {
-    let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
+    let reporter = build_reporter(js_report_message, js_report_diagnostic);
 
     console_log(&format!("parsing: {text}"));
-    lox::parse(&mut reporter, text);
+    lox::parse(&reporter, text);
 }
 
 #[wasm_bindgen]
@@ -104,10 +100,10 @@ pub fn interpret(
     js_report_message: js_sys::Function,
     js_report_diagnostic: js_sys::Function,
 ) {
-    let mut reporter = build_reporter(js_report_message, js_report_diagnostic);
+    let reporter = build_reporter(js_report_message, js_report_diagnostic);
 
     console_log(&format!("interpreting: {text}"));
-    lox::interpret(&mut reporter, text);
+    lox::interpret(&reporter, text);
 }
 
 fn build_reporter(

@@ -9,7 +9,7 @@ pub struct ParseError {
 }
 
 pub fn parse(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     tokens: LinkedList<token::Token>,
 ) -> Option<expr::Expr> {
     let mut parser = Parser::new();
@@ -89,7 +89,7 @@ impl Parser {
 
     fn parse(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: LinkedList<token::Token>,
     ) -> Result<expr::Expr, ParseError> {
         let mut tokens = tokens.into_iter().peekable();
@@ -104,7 +104,7 @@ impl Parser {
 
     fn expression(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
@@ -113,7 +113,7 @@ impl Parser {
 
     fn equality(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
@@ -130,7 +130,7 @@ impl Parser {
 
     fn comparison(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
@@ -147,7 +147,7 @@ impl Parser {
 
     fn term(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
@@ -164,7 +164,7 @@ impl Parser {
 
     fn factor(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
@@ -181,7 +181,7 @@ impl Parser {
 
     fn unary(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
@@ -195,7 +195,7 @@ impl Parser {
 
     fn primary(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
@@ -219,7 +219,7 @@ impl Parser {
 
     fn consume(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         token_to_consume: &token::TokenType,
         message: &str,
@@ -277,7 +277,7 @@ impl Parser {
 
     fn add_diagnostic(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         tokens: &mut TokenIterator,
         message: &str,
     ) -> Result<expr::Expr, ParseError> {
@@ -337,7 +337,7 @@ mod test {
 
     #[test]
     fn production_tests() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
 
         let blank_location = FileLocation::new(0, 0);
 
@@ -528,7 +528,7 @@ mod test {
             reporter.reset();
 
             let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
-            match parse(&mut reporter, tokens) {
+            match parse(&reporter, tokens) {
                 Some(expr) => assert_eq!(ast_printer::print(&expr), expected_parse),
                 _ => {
                     reporter.print_contents();
@@ -541,7 +541,7 @@ mod test {
 
     #[test]
     fn errors() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
 
         let blank_location = FileLocation::new(0, 0);
 
@@ -589,13 +589,19 @@ mod test {
         for (expected_message, tokens) in tests {
             reporter.reset();
             let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
-            if let Some(expr) = parse(&mut reporter, tokens) {
+            if let Some(expr) = parse(&reporter, tokens) {
                 panic!("Unexpected expression found: {}", ast_printer::print(&expr));
             };
             assert!(reporter.has_diagnostics());
-            assert_eq!(reporter.diagnostics.len(), 1);
+            assert_eq!(reporter.diagnostics_len(), 1);
 
-            assert_eq!(reporter.diagnostics[0].message, expected_message);
+            assert_eq!(
+                reporter
+                    .diagnostic_get(0)
+                    .expect("missing diagnostic")
+                    .message,
+                expected_message
+            );
         }
     }
 }

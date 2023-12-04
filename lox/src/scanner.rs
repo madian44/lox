@@ -5,10 +5,7 @@ use std::collections::LinkedList;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-pub fn scan_tokens(
-    reporter: &mut dyn reporter::Reporter,
-    source: &str,
-) -> LinkedList<token::Token> {
+pub fn scan_tokens(reporter: &dyn reporter::Reporter, source: &str) -> LinkedList<token::Token> {
     let mut scanner = Scanner::build();
     scanner.scan(reporter, source)
 }
@@ -38,7 +35,7 @@ impl<'k> Scanner<'k> {
 
     fn scan(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         source: &str,
     ) -> LinkedList<token::Token> {
         let mut tokens = LinkedList::new();
@@ -63,7 +60,7 @@ impl<'k> Scanner<'k> {
 
     fn parse_character(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         source: &str,
         char_indices: &mut Peekable<CharIndices>,
         c: char,
@@ -219,7 +216,7 @@ impl<'k> Scanner<'k> {
 
     fn build_string(
         &mut self,
-        reporter: &mut dyn reporter::Reporter,
+        reporter: &dyn reporter::Reporter,
         source: &str,
         char_indices: &mut Peekable<CharIndices>,
     ) -> Option<token::Token> {
@@ -703,7 +700,7 @@ mod test {
 
     #[test]
     fn diagnostic_tests() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
 
         let tests = vec![
             (
@@ -734,21 +731,21 @@ mod test {
 
         for (source, expected_diagnostics) in tests {
             reporter.reset();
-            let _tokens = scan_tokens(&mut reporter, source);
+            let _tokens = scan_tokens(&reporter, source);
             assert!(!reporter.has_messages(), "Unexpected messages reported");
             assert!(
                 reporter.has_diagnostics(),
                 "Unexpectedly no diagnostics reported"
             );
             assert_eq!(
-                reporter.diagnostics.len(),
+                reporter.diagnostics_len(),
                 expected_diagnostics.len(),
                 "Incorrect diagnostics returned"
             );
             for (i, expected_diagnostic) in expected_diagnostics.iter().enumerate() {
-                let diagnostic = &reporter.diagnostics[i];
+                let diagnostic = reporter.diagnostic_get(i).expect("missing diagnostic");
                 assert_eq!(
-                    *diagnostic, *expected_diagnostic,
+                    diagnostic, *expected_diagnostic,
                     "Unexpected diagnostic returned"
                 );
             }

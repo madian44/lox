@@ -37,7 +37,7 @@ fn test_expression() {
 
     for (expression, expected_message) in tests {
         reporter.reset();
-        lox::interpret(&mut reporter, expression);
+        lox::interpret(&reporter, expression);
         if !reporter.has_message(expected_message) || reporter.has_diagnostics() {
             println!("Unexpected errors: {} != {}", expression, expected_message);
             reporter.print_contents();
@@ -96,7 +96,7 @@ fn test_failures() {
 
     for (expression, expected_diagnostic) in &tests {
         reporter.reset();
-        lox::interpret(&mut reporter, expression);
+        lox::interpret(&reporter, expression);
         if !reporter.has_diagnostic(expected_diagnostic) {
             println!(
                 "Missing diagnostic: {} != {:?}",

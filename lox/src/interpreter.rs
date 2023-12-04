@@ -10,7 +10,7 @@ struct RuntimeError {
 }
 
 pub fn interpret(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expression: &expr::Expr,
 ) -> Option<lox_type::LoxType> {
     match evalute(reporter, expression) {
@@ -23,7 +23,7 @@ pub fn interpret(
 }
 
 fn evalute(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expression: &expr::Expr,
 ) -> Result<lox_type::LoxType, RuntimeError> {
     match expression {
@@ -67,7 +67,7 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
 }
 
 fn add_diagnostic(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expr: &expr::Expr,
     message: String,
 ) -> Result<lox_type::LoxType, RuntimeError> {
@@ -76,7 +76,7 @@ fn add_diagnostic(
 }
 
 fn evaluate_literal(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expr: &expr::Expr,
     token: &token::Token,
 ) -> Result<lox_type::LoxType, RuntimeError> {
@@ -91,7 +91,7 @@ fn evaluate_literal(
 }
 
 fn evalute_unary(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expression: &expr::Expr,
     operator: &token::Token,
     right: &expr::Expr,
@@ -108,7 +108,7 @@ fn evalute_unary(
 }
 
 fn evalute_binary(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expression: &expr::Expr,
     left: &expr::Expr,
     operator: &token::Token,
@@ -194,7 +194,7 @@ fn is_truthy(lox_type: &lox_type::LoxType) -> bool {
 }
 
 fn check_number_operand(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expression: &expr::Expr,
     lox_type: &lox_type::LoxType,
 ) -> Result<f64, RuntimeError> {
@@ -210,7 +210,7 @@ fn check_number_operand(
 }
 
 fn check_string_operand<'a>(
-    reporter: &mut dyn reporter::Reporter,
+    reporter: &dyn reporter::Reporter,
     expression: &'a expr::Expr,
     lox_type: &'a lox_type::LoxType,
 ) -> Result<&'a str, RuntimeError> {
@@ -263,7 +263,7 @@ mod test {
 
     #[test]
     fn test_check_string_operand() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
             value: token::Token::new(
@@ -302,7 +302,7 @@ mod test {
 
         for (value, expected_result) in &tests {
             assert_eq!(
-                check_string_operand(&mut reporter, &expression, value),
+                check_string_operand(&reporter, &expression, value),
                 *expected_result,
                 "unexpected result for: {:?}",
                 value
@@ -312,7 +312,7 @@ mod test {
 
     #[test]
     fn test_check_number_operand() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
             value: token::Token::new(
@@ -351,7 +351,7 @@ mod test {
 
         for (value, expected_result) in &tests {
             assert_eq!(
-                check_number_operand(&mut reporter, &expression, value),
+                check_number_operand(&reporter, &expression, value),
                 *expected_result,
                 "unexpected result for: {:?}",
                 value
@@ -422,7 +422,7 @@ mod test {
 
     #[test]
     fn test_plus() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -523,7 +523,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&mut reporter, expr),
+                evalute(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print(expr),
@@ -534,7 +534,7 @@ mod test {
 
     #[test]
     fn test_equality() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -601,7 +601,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&mut reporter, expr),
+                evalute(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print(expr),
@@ -612,7 +612,7 @@ mod test {
 
     #[test]
     fn test_binary() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -679,7 +679,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&mut reporter, expr),
+                evalute(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print(expr),
@@ -690,7 +690,7 @@ mod test {
 
     #[test]
     fn test_unary() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -739,7 +739,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&mut reporter, expr),
+                evalute(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print(expr),
@@ -750,7 +750,7 @@ mod test {
 
     #[test]
     fn test_literal() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -779,7 +779,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evalute(&mut reporter, expr),
+                evalute(&reporter, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print(expr),
