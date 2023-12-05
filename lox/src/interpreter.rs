@@ -54,48 +54,53 @@ fn evaluate_stmt_var(
 
 fn evaluate_expr(
     reporter: &dyn reporter::Reporter,
-    environment: &environment::Environment,
+    environment: &mut environment::Environment,
     expression: &expr::Expr,
 ) -> Result<lox_type::LoxType, RuntimeError> {
     match expression {
-        expr::Expr::Literal { value } => evaluate_expr_literal(reporter, expression, value),
-        expr::Expr::Grouping { expression } => evaluate_expr(reporter, environment, expression),
-        expr::Expr::Unary { operator, right } => {
-            evaluate_expr_unary(reporter, environment, expression, operator, right)
+        expr::Expr::Assign { name, value } => {
+            evaluate_expr_assign(reporter, environment, expression, name, value)
         }
         expr::Expr::Binary {
             left,
             operator,
             right,
         } => evaluate_expr_binary(reporter, environment, expression, left, operator, right),
+        expr::Expr::Grouping { expression } => evaluate_expr(reporter, environment, expression),
+        expr::Expr::Literal { value } => evaluate_expr_literal(reporter, expression, value),
+        expr::Expr::Unary { operator, right } => {
+            evaluate_expr_unary(reporter, environment, expression, operator, right)
+        }
         expr::Expr::Variable { name } => evaluate_expr_var(reporter, expression, environment, name),
     }
 }
 
 fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
     match expr {
-        expr::Expr::Literal { value } => &value.start,
-        expr::Expr::Unary { operator, right: _ } => &operator.start,
+        expr::Expr::Assign { name, value: _ } => &name.start,
         expr::Expr::Binary {
             left,
             operator: _,
             right: _,
         } => get_start_location(left),
         expr::Expr::Grouping { expression } => get_start_location(expression),
+        expr::Expr::Literal { value } => &value.start,
+        expr::Expr::Unary { operator, right: _ } => &operator.start,
         expr::Expr::Variable { name } => &name.start,
     }
 }
 
 fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
     match expr {
-        expr::Expr::Literal { value } => &value.end,
-        expr::Expr::Unary { operator: _, right } => get_end_location(right),
+        expr::Expr::Assign { name: _, value } => get_end_location(value),
         expr::Expr::Binary {
             left: _,
             operator: _,
             right,
         } => get_end_location(right),
         expr::Expr::Grouping { expression } => get_end_location(expression),
+        expr::Expr::Literal { value } => &value.end,
+        expr::Expr::Unary { operator: _, right } => get_end_location(right),
         expr::Expr::Variable { name } => &name.end,
     }
 }
@@ -124,9 +129,23 @@ fn evaluate_expr_literal(
     }
 }
 
+fn evaluate_expr_assign(
+    reporter: &dyn reporter::Reporter,
+    environment: &mut environment::Environment,
+    expression: &expr::Expr,
+    name: &token::Token,
+    value: &expr::Expr,
+) -> Result<lox_type::LoxType, RuntimeError> {
+    let value = evaluate_expr(reporter, environment, value)?;
+    if let Err(message) = environment.assign(name, &value) {
+        add_diagnostic(reporter, expression, message.message)?;
+    }
+    Ok(value)
+}
+
 fn evaluate_expr_unary(
     reporter: &dyn reporter::Reporter,
-    environment: &environment::Environment,
+    environment: &mut environment::Environment,
     expression: &expr::Expr,
     operator: &token::Token,
     right: &expr::Expr,
@@ -144,7 +163,7 @@ fn evaluate_expr_unary(
 
 fn evaluate_expr_binary(
     reporter: &dyn reporter::Reporter,
-    environment: &environment::Environment,
+    environment: &mut environment::Environment,
     expression: &expr::Expr,
     left: &expr::Expr,
     operator: &token::Token,
@@ -196,7 +215,7 @@ fn evaluate_expr_binary(
 fn evaluate_expr_var(
     reporter: &dyn reporter::Reporter,
     expression: &expr::Expr,
-    environment: &environment::Environment,
+    environment: &mut environment::Environment,
     name: &token::Token,
 ) -> Result<lox_type::LoxType, RuntimeError> {
     match environment.get(name) {
@@ -471,7 +490,7 @@ mod test {
     #[test]
     fn test_plus() {
         let reporter = TestReporter::build();
-        let environment = environment::Environment::new();
+        let mut environment = environment::Environment::new();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -572,7 +591,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evaluate_expr(&reporter, &environment, expr),
+                evaluate_expr(&reporter, &mut environment, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print_expr(expr),
@@ -584,7 +603,7 @@ mod test {
     #[test]
     fn test_equality() {
         let reporter = TestReporter::build();
-        let environment = environment::Environment::new();
+        let mut environment = environment::Environment::new();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -651,7 +670,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evaluate_expr(&reporter, &environment, expr),
+                evaluate_expr(&reporter, &mut environment, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print_expr(expr),
@@ -663,7 +682,7 @@ mod test {
     #[test]
     fn test_binary() {
         let reporter = TestReporter::build();
-        let environment = environment::Environment::new();
+        let mut environment = environment::Environment::new();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -730,7 +749,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evaluate_expr(&reporter, &environment, expr),
+                evaluate_expr(&reporter, &mut environment, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print_expr(expr),
@@ -742,7 +761,7 @@ mod test {
     #[test]
     fn test_unary() {
         let reporter = TestReporter::build();
-        let environment = environment::Environment::new();
+        let mut environment = environment::Environment::new();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -791,7 +810,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evaluate_expr(&reporter, &environment, expr),
+                evaluate_expr(&reporter, &mut environment, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print_expr(expr),
@@ -803,7 +822,7 @@ mod test {
     #[test]
     fn test_literal() {
         let reporter = TestReporter::build();
-        let environment = environment::Environment::new();
+        let mut environment = environment::Environment::new();
         let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
@@ -832,7 +851,7 @@ mod test {
 
         for (expr, expected_result) in &tests {
             assert_eq!(
-                evaluate_expr(&reporter, &environment, expr),
+                evaluate_expr(&reporter, &mut environment, expr),
                 *expected_result,
                 "unexpected result: {} != {:?}",
                 ast_printer::print_expr(expr),

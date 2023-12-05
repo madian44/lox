@@ -102,7 +102,7 @@ impl Parser {
         let data = Data::new();
 
         let mut statements = LinkedList::new();
-        if !self.is_at_end(&mut tokens) {
+        while !self.is_at_end(&mut tokens) {
             match self.declaration(reporter, &mut tokens, &data) {
                 Ok(stmt) => statements.push_back(stmt),
                 Err(err) => reporter.add_message(&err.message),
@@ -193,7 +193,27 @@ impl Parser {
         tokens: &mut TokenIterator,
         data: &Data,
     ) -> Result<expr::Expr, ParseError> {
-        self.equality(reporter, tokens, data)
+        self.assignment(reporter, tokens, data)
+    }
+
+    fn assignment(
+        &mut self,
+        reporter: &dyn reporter::Reporter,
+        tokens: &mut TokenIterator,
+        data: &Data,
+    ) -> Result<expr::Expr, ParseError> {
+        let expr = self.equality(reporter, tokens, data)?;
+
+        if self.match_next_token(tokens, &data.assignment_tokens) {
+            let _ = self.take_current_token()?;
+            let value = self.assignment(reporter, tokens, data)?;
+
+            if let expr::Expr::Variable { name } = expr {
+                return Ok(expr::Expr::build_assign(name, value));
+            }
+            let _ = self.add_diagnostic(reporter, tokens, "Invalid assignment target");
+        }
+        Ok(expr)
     }
 
     fn equality(

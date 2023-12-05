@@ -27,11 +27,12 @@ pub fn print_expr(expr: &expr::Expr) -> String {
         expr::Expr::Literal { value } => print_expr_literal(value),
         expr::Expr::Unary { operator, right } => print_expr_unary(operator, right),
         expr::Expr::Variable { name } => print_expr_variable(name),
+        expr::Expr::Assign { name, value } => print_expr_assign(name, value),
     }
 }
 
-fn print_expr_variable(name: &token::Token) -> String {
-    name.lexeme.clone()
+fn print_expr_assign(name: &token::Token, value: &expr::Expr) -> String {
+    format!("{} = {}", name.lexeme, print_expr(value))
 }
 
 fn print_expr_binary(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
@@ -56,6 +57,10 @@ fn print_expr_literal(value: &token::Token) -> String {
 
 fn print_expr_unary(operator: &token::Token, right: &expr::Expr) -> String {
     parenthesize(&operator.lexeme, vec![right])
+}
+
+fn print_expr_variable(name: &token::Token) -> String {
+    name.lexeme.clone()
 }
 
 fn parenthesize(name: &str, exprs: Vec<&expr::Expr>) -> String {

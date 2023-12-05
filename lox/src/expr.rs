@@ -2,6 +2,10 @@ use crate::token;
 
 #[derive(Debug)]
 pub enum Expr {
+    Assign {
+        name: token::Token,
+        value: Box<Expr>,
+    },
     Binary {
         left: Box<Expr>,
         operator: token::Token,
@@ -23,6 +27,13 @@ pub enum Expr {
 }
 
 impl Expr {
+    pub fn build_assign(name: token::Token, value: Expr) -> Self {
+        Expr::Assign {
+            name,
+            value: Box::new(value),
+        }
+    }
+
     pub fn build_binary(left: Expr, operator: token::Token, right: Expr) -> Self {
         Expr::Binary {
             left: Box::new(left),
