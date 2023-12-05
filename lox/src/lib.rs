@@ -1,10 +1,12 @@
 mod ast_printer;
+mod environment;
 mod expr;
 mod interpreter;
 mod location;
 mod lox_type;
 mod parser;
 mod reporter;
+mod runtime_error;
 mod scanner;
 mod stmt;
 mod token;
