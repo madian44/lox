@@ -3,7 +3,6 @@ use std::collections::linked_list::IntoIter;
 use std::collections::LinkedList;
 use std::iter::Peekable;
 
-type TokenIterator = Peekable<IntoIter<token::Token>>;
 pub struct ParseError {
     message: String,
 }
@@ -12,9 +11,9 @@ pub fn parse(
     reporter: &dyn reporter::Reporter,
     tokens: LinkedList<token::Token>,
 ) -> LinkedList<stmt::Stmt> {
-    let mut parser = Parser::new();
+    let mut parser = Parser::new(reporter, tokens);
 
-    parser.parse(reporter, tokens)
+    parser.parse()
 }
 
 struct Data {
@@ -71,16 +70,20 @@ impl Data {
     }
 }
 
-struct Parser {
+struct Parser<'k> {
     current_token: Option<token::Token>,
     last_location: Option<location::FileLocation>,
+    reporter: &'k dyn reporter::Reporter,
+    tokens: Peekable<IntoIter<token::Token>>,
 }
 
-impl Parser {
-    fn new() -> Self {
+impl<'k> Parser<'k> {
+    fn new(reporter: &'k dyn reporter::Reporter, tokens: LinkedList<token::Token>) -> Self {
         Parser {
             current_token: None,
             last_location: None,
+            reporter,
+            tokens: tokens.into_iter().peekable(),
         }
     }
 
@@ -93,357 +96,256 @@ impl Parser {
         }
     }
 
-    fn parse(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: LinkedList<token::Token>,
-    ) -> LinkedList<stmt::Stmt> {
-        let mut tokens = tokens.into_iter().peekable();
+    fn parse(&mut self) -> LinkedList<stmt::Stmt> {
         let data = Data::new();
 
         let mut statements = LinkedList::new();
-        while !self.is_at_end(&mut tokens) {
-            match self.declaration(reporter, &mut tokens, &data) {
+        while !self.is_at_end() {
+            match self.declaration(&data) {
                 Ok(stmt) => statements.push_back(stmt),
-                Err(err) => reporter.add_message(&err.message),
+                Err(err) => self.reporter.add_message(&err.message),
             }
         }
 
         statements
     }
 
-    fn declaration(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<stmt::Stmt, ParseError> {
-        let result = if self.match_next_token(tokens, &data.declaration_tokens) {
-            self.variable_declaration(reporter, tokens, data)
+    fn declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        let result = if self.match_next_token(&data.declaration_tokens) {
+            self.variable_declaration(data)
         } else {
-            self.statement(reporter, tokens, data)
+            self.statement(data)
         };
         if result.is_err() {
-            self.synchronize(tokens);
+            self.synchronize();
         }
         result
     }
 
-    fn variable_declaration(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<stmt::Stmt, ParseError> {
-        self.consume(
-            reporter,
-            tokens,
-            &token::TokenType::Identifier,
-            "Expect a variable name",
-        )?;
+    fn variable_declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume(&token::TokenType::Identifier, "Expect a variable name")?;
         let name = self.take_current_token()?;
 
-        let initialiser = if self.match_next_token(tokens, &data.assignment_tokens) {
-            Some(self.expression(reporter, tokens, data)?)
+        let initialiser = if self.match_next_token(&data.assignment_tokens) {
+            Some(self.expression(data)?)
         } else {
             None
         };
-        self.consume_semicolon(reporter, tokens, "Expect ';' after variable declaration")?;
+        self.consume_semicolon("Expect ';' after variable declaration")?;
         Ok(stmt::Stmt::Var { name, initialiser })
     }
 
-    fn statement(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<stmt::Stmt, ParseError> {
-        if self.match_next_token(tokens, &data.print_tokens) {
-            self.print_statement(reporter, tokens, data)
+    fn statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        if self.match_next_token(&data.print_tokens) {
+            self.print_statement(data)
         } else {
-            self.expression_statement(reporter, tokens, data)
+            self.expression_statement(data)
         }
     }
 
-    fn print_statement(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<stmt::Stmt, ParseError> {
-        let value = self.expression(reporter, tokens, data)?;
-        self.consume_semicolon(reporter, tokens, "Expect ';' after value")?;
+    fn print_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        let value = self.expression(data)?;
+        self.consume_semicolon("Expect ';' after value")?;
         Ok(stmt::Stmt::Print { value })
     }
 
-    fn expression_statement(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<stmt::Stmt, ParseError> {
-        let expression = self.expression(reporter, tokens, data)?;
-        self.consume_semicolon(reporter, tokens, "Expect ';' after expression")?;
+    fn expression_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        let expression = self.expression(data)?;
+        self.consume_semicolon("Expect ';' after expression")?;
         Ok(stmt::Stmt::Expression { expression })
     }
 
-    fn expression(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        self.assignment(reporter, tokens, data)
+    fn expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        self.assignment(data)
     }
 
-    fn assignment(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        let expr = self.equality(reporter, tokens, data)?;
+    fn assignment(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let expr = self.equality(data)?;
 
-        if self.match_next_token(tokens, &data.assignment_tokens) {
+        if self.match_next_token(&data.assignment_tokens) {
             let _ = self.take_current_token()?;
-            let value = self.assignment(reporter, tokens, data)?;
+            let value = self.assignment(data)?;
 
             if let expr::Expr::Variable { name } = expr {
                 return Ok(expr::Expr::build_assign(name, value));
             }
-            let _ = self.add_diagnostic(reporter, tokens, "Invalid assignment target");
+            let _ = self.add_diagnostic("Invalid assignment target");
         }
         Ok(expr)
     }
 
-    fn equality(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.comparison(reporter, tokens, data)?;
+    fn equality(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.comparison(data)?;
 
-        while self.match_next_token(tokens, &data.equality_tokens) {
+        while self.match_next_token(&data.equality_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.comparison(reporter, tokens, data)?;
+            let right = self.comparison(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn comparison(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.term(reporter, tokens, data)?;
+    fn comparison(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.term(data)?;
 
-        while self.match_next_token(tokens, &data.comparison_tokens) {
+        while self.match_next_token(&data.comparison_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.term(reporter, tokens, data)?;
+            let right = self.term(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn term(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.factor(reporter, tokens, data)?;
+    fn term(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.factor(data)?;
 
-        while self.match_next_token(tokens, &data.term_tokens) {
+        while self.match_next_token(&data.term_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.factor(reporter, tokens, data)?;
+            let right = self.factor(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn factor(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.unary(reporter, tokens, data)?;
+    fn factor(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.unary(data)?;
 
-        while self.match_next_token(tokens, &data.factor_tokens) {
+        while self.match_next_token(&data.factor_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.unary(reporter, tokens, data)?;
+            let right = self.unary(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn unary(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        if self.match_next_token(tokens, &data.unary_tokens) {
+    fn unary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        if self.match_next_token(&data.unary_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.unary(reporter, tokens, data)?;
+            let right = self.unary(data)?;
             return Ok(expr::Expr::build_unary(operator, right));
         }
-        self.primary(reporter, tokens, data)
+        self.primary(data)
     }
 
-    fn primary(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        data: &Data,
-    ) -> Result<expr::Expr, ParseError> {
-        if self.match_next_token(tokens, &data.primary_tokens) {
+    fn primary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        if self.match_next_token(&data.primary_tokens) {
             return Ok(expr::Expr::build_literal(self.take_current_token()?));
         }
 
-        if self.match_next_token(tokens, &data.identifier_tokens) {
+        if self.match_next_token(&data.identifier_tokens) {
             return Ok(expr::Expr::build_variable(self.take_current_token()?));
         }
 
-        if self.match_next_token(tokens, &data.start_of_group_tokens) {
-            let expr = self.expression(reporter, tokens, data)?;
-            self.consume(
-                reporter,
-                tokens,
-                &token::TokenType::RightParen,
-                "expect ')' after expression",
-            )?;
+        if self.match_next_token(&data.start_of_group_tokens) {
+            let expr = self.expression(data)?;
+            self.consume(&token::TokenType::RightParen, "expect ')' after expression")?;
             return Ok(expr::Expr::build_grouping(expr));
         }
 
-        self.add_diagnostic(reporter, tokens, "Primary expression expected")
+        self.add_diagnostic("Primary expression expected")
     }
 
     fn consume(
         &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
         token_to_consume: &token::TokenType,
         message: &str,
     ) -> Result<(), ParseError> {
-        if self.check_next_token(tokens, token_to_consume) {
-            self.advance(tokens);
+        if self.check_next_token(token_to_consume) {
+            self.advance();
             return Ok(());
         }
 
-        self.add_diagnostic(reporter, tokens, message)?;
+        self.add_diagnostic(message)?;
         Ok(())
     }
 
-    fn consume_semicolon(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        message: &str,
-    ) -> Result<(), ParseError> {
-        self.consume(reporter, tokens, &token::TokenType::Semicolon, message)?;
+    fn consume_semicolon(&mut self, message: &str) -> Result<(), ParseError> {
+        self.consume(&token::TokenType::Semicolon, message)?;
         Ok(())
     }
 
-    fn match_next_token(
-        &mut self,
-        tokens: &mut TokenIterator,
-        token_types: &[token::TokenType],
-    ) -> bool {
-        if token_types.iter().any(|t| self.check_next_token(tokens, t)) {
-            self.advance(tokens);
+    fn match_next_token(&mut self, token_types: &[token::TokenType]) -> bool {
+        if token_types.iter().any(|t| self.check_next_token(t)) {
+            self.advance();
             true
         } else {
             false
         }
     }
 
-    fn check_next_token(
-        &self,
-        tokens: &mut TokenIterator,
-        type_to_check: &token::TokenType,
-    ) -> bool {
-        if self.is_at_end(tokens) {
+    fn check_next_token(&mut self, type_to_check: &token::TokenType) -> bool {
+        if self.is_at_end() {
             false
         } else {
-            match tokens.peek() {
+            match self.tokens.peek() {
                 Some(t) => t.token_type == *type_to_check,
                 None => false,
             }
         }
     }
 
-    fn is_at_end(&self, tokens: &mut TokenIterator) -> bool {
-        match tokens.peek() {
+    fn is_at_end(&mut self) -> bool {
+        match self.tokens.peek() {
             Some(t) => t.token_type == token::TokenType::Eof,
             None => true,
         }
     }
 
-    fn advance(&mut self, tokens: &mut TokenIterator) {
-        self.current_token = tokens.next();
+    fn advance(&mut self) {
+        self.current_token = self.tokens.next();
         if self.current_token.is_some() {
             self.last_location = Some(self.current_token.as_ref().unwrap().start);
         }
     }
 
-    fn add_diagnostic(
-        &mut self,
-        reporter: &dyn reporter::Reporter,
-        tokens: &mut TokenIterator,
-        message: &str,
-    ) -> Result<expr::Expr, ParseError> {
+    fn add_diagnostic(&mut self, message: &str) -> Result<expr::Expr, ParseError> {
         let location = self
-            .get_nearby_location(tokens)
+            .get_nearby_location()
             .unwrap_or(location::FileLocation::new(0, 0));
-        reporter.add_diagnostic(&location, &location, message);
+        self.reporter.add_diagnostic(&location, &location, message);
         Err(ParseError {
             message: message.to_string(),
         })
     }
 
-    fn get_nearby_location(
-        &mut self,
-        tokens: &mut TokenIterator,
-    ) -> Option<location::FileLocation> {
+    fn get_nearby_location(&mut self) -> Option<location::FileLocation> {
         if let Some(location) = &self.last_location {
             return Some(*location);
         }
-        if let Some(token) = tokens.peek() {
+        if let Some(token) = self.tokens.peek() {
             return Some(token.start);
         }
         None
     }
 
-    fn synchronize(&mut self, tokens: &mut TokenIterator) {
+    fn synchronize(&mut self) {
         // untested
-        while !self.is_at_end(tokens) {
-            if let Some(token) = tokens.peek() {
+        while !self.is_at_end() {
+            if let Some(token) = self.tokens.peek() {
                 if token.token_type == token::TokenType::Semicolon {
                     return;
                 }
             }
 
-            match self.current_token.as_ref().unwrap().token_type {
-                token::TokenType::Class
-                | token::TokenType::Fun
-                | token::TokenType::Var
-                | token::TokenType::For
-                | token::TokenType::If
-                | token::TokenType::While
-                | token::TokenType::Print
-                | token::TokenType::Return => return,
-                _ => (),
+            if let Some(t) = &self.current_token {
+                match t.token_type {
+                    token::TokenType::Class
+                    | token::TokenType::Fun
+                    | token::TokenType::Var
+                    | token::TokenType::For
+                    | token::TokenType::If
+                    | token::TokenType::While
+                    | token::TokenType::Print
+                    | token::TokenType::Return => return,
+                    _ => (),
+                }
             }
 
-            self.advance(tokens);
+            self.advance();
         }
     }
 }
@@ -451,268 +353,44 @@ impl Parser {
 mod test {
     use super::*;
     use crate::reporter::test::TestReporter;
-    use crate::FileLocation;
-    use crate::{ast_printer, Reporter};
+    use crate::{ast_printer, scanner, Reporter};
 
     #[test]
     fn production_tests() {
         let reporter = TestReporter::build();
 
-        let blank_location = FileLocation::new(0, 0);
-
         let tests = vec![
-            (
-                "(a string) ;",
-                vec![
-                    token::Token::new(
-                        token::TokenType::String,
-                        "\"a string\"",
-                        blank_location,
-                        blank_location,
-                        token::Literal::String("a string".to_string()),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Semicolon,
-                        ";",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                ],
-            ),
-            (
-                "(+ (a string) (10)) ;",
-                vec![
-                    token::Token::new(
-                        token::TokenType::String,
-                        "\"a string\"",
-                        blank_location,
-                        blank_location,
-                        token::Literal::String("a string".to_string()),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Plus,
-                        "+",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "10",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Semicolon,
-                        ";",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                ],
-            ),
-            (
-                "(group (+ (a string) (10))) ;",
-                vec![
-                    token::Token::new(
-                        token::TokenType::LeftParen,
-                        "(",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::String,
-                        "\"a string\"",
-                        blank_location,
-                        blank_location,
-                        token::Literal::String("a string".to_string()),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Plus,
-                        "+",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "10",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::RightParen,
-                        ")",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Semicolon,
-                        ";",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                ],
-            ),
-            (
-                "PRINT (== (10) (11)) ;",
-                vec![
-                    token::Token::new(
-                        token::TokenType::Print,
-                        "print",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "10",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::EqualEqual,
-                        "==",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "11",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(11f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Semicolon,
-                        ";",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                ],
-            ),
-            (
-                "(> (10) (11)) ;",
-                vec![
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "10",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Greater,
-                        ">",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "11",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(11f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Semicolon,
-                        ";",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                ],
-            ),
-            (
-                "(* (10) (11)) ;",
-                vec![
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "10",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Star,
-                        "*",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "11",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(11f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Semicolon,
-                        ";",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                ],
-            ),
-            (
-                "(! (! (10))) ;",
-                vec![
-                    token::Token::new(
-                        token::TokenType::Bang,
-                        "!",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Bang,
-                        "!",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "10",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                    token::Token::new(
-                        token::TokenType::Semicolon,
-                        ";",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                ],
-            ),
+            ("10 + 10;", "(+ (10) (10)) ;"),
+            ("10 == 10;", "(== (10) (10)) ;"),
+            ("\"a string\";", "(a string) ;"),
+            ("\"a string\" + 10;", "(+ (a string) (10)) ;"),
+            ("(\"a string\" + 10);", "(group (+ (a string) (10))) ;"),
+            ("print 10 == 11;", "PRINT (== (10) (11)) ;"),
+            (" 10 > 11;", "(> (10) (11)) ;"),
+            (" 10 * 11;", "(* (10) (11)) ;"),
+            ("!!10;", "(! (! (10))) ;"),
         ];
 
-        for (expected_parse, tokens) in tests {
+        for (src, expected_parse) in tests {
             reporter.reset();
 
-            let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
+            let tokens = scanner::scan_tokens(&reporter, src);
             let statements = parse(&reporter, tokens);
             assert_eq!(statements.len(), 1);
             let parse = ast_printer::print_stmt(statements.front().unwrap());
-            if parse != expected_parse {
+            if parse != expected_parse || reporter.has_diagnostics() {
                 reporter.print_contents();
-                assert_eq!(parse, expected_parse);
             }
-            assert!(!reporter.has_diagnostics());
+            assert_eq!(
+                parse, expected_parse,
+                "unexpected parse of '{}'; {} does not match {}",
+                src, parse, expected_parse
+            );
+            assert!(
+                !reporter.has_diagnostics(),
+                "unexpected diagnostics for '{}'",
+                src
+            );
         }
     }
 
@@ -720,85 +398,21 @@ mod test {
     fn errors() {
         let reporter = TestReporter::build();
 
-        let blank_location = FileLocation::new(0, 0);
-
         let tests = vec![
-            (
-                "Primary expression expected",
-                vec![
-                    token::Token::new(
-                        token::TokenType::Slash,
-                        "/",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "\"10\"",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                ],
-            ),
-            (
-                "expect ')' after expression",
-                vec![
-                    token::Token::new(
-                        token::TokenType::LeftParen,
-                        "(",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "\"10\"",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                ],
-            ),
-            (
-                "Expect ';' after value",
-                vec![
-                    token::Token::new(
-                        token::TokenType::Print,
-                        "print",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    token::Token::new(
-                        token::TokenType::Number,
-                        "\"10\"",
-                        blank_location,
-                        blank_location,
-                        token::Literal::Number(10f64),
-                    ),
-                ],
-            ),
-            (
-                "Expect ';' after expression",
-                vec![token::Token::new(
-                    token::TokenType::Number,
-                    "\"10\"",
-                    blank_location,
-                    blank_location,
-                    token::Literal::Number(10f64),
-                )],
-            ),
+            ("/ \"10\"", "Primary expression expected"),
+            ("( \"10\"", "expect ')' after expression"),
+            ("print 10", "Expect ';' after value"),
+            ("\"10\"", "Expect ';' after expression"),
         ];
 
-        for (expected_message, tokens) in tests {
+        for (src, expected_message) in tests {
             reporter.reset();
-            let tokens: LinkedList<token::Token> = tokens.into_iter().collect();
+            let tokens = scanner::scan_tokens(&reporter, src);
             let statements = parse(&reporter, tokens);
             if !statements.is_empty() {
                 panic!(
-                    "Unexpected statement found: {}",
+                    "Unexpected statement found for '{}' : {}",
+                    src,
                     ast_printer::print_stmt(statements.front().unwrap())
                 );
             };
@@ -810,7 +424,9 @@ mod test {
                     .diagnostic_get(0)
                     .expect("missing diagnostic")
                     .message,
-                expected_message
+                expected_message,
+                "Missing diagnostic for '{}'",
+                src
             );
         }
     }
