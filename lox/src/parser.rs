@@ -26,6 +26,9 @@ struct Data {
     primary_tokens: Vec<token::TokenType>,
     start_of_group_tokens: Vec<token::TokenType>,
     print_tokens: Vec<token::TokenType>,
+    declaration_tokens: Vec<token::TokenType>,
+    assignment_tokens: Vec<token::TokenType>,
+    identifier_tokens: Vec<token::TokenType>,
 }
 
 impl Data {
@@ -49,6 +52,9 @@ impl Data {
         ];
         let start_of_group_tokens = vec![token::TokenType::LeftParen];
         let print_tokens = vec![token::TokenType::Print];
+        let declaration_tokens = vec![token::TokenType::Var];
+        let assignment_tokens = vec![token::TokenType::Equal];
+        let identifier_tokens = vec![token::TokenType::Identifier];
         Data {
             equality_tokens,
             comparison_tokens,
@@ -58,6 +64,9 @@ impl Data {
             primary_tokens,
             start_of_group_tokens,
             print_tokens,
+            declaration_tokens,
+            assignment_tokens,
+            identifier_tokens,
         }
     }
 }
@@ -94,13 +103,53 @@ impl Parser {
 
         let mut statements = LinkedList::new();
         if !self.is_at_end(&mut tokens) {
-            match self.statement(reporter, &mut tokens, &data) {
+            match self.declaration(reporter, &mut tokens, &data) {
                 Ok(stmt) => statements.push_back(stmt),
                 Err(err) => reporter.add_message(&err.message),
             }
         }
 
         statements
+    }
+
+    fn declaration(
+        &mut self,
+        reporter: &dyn reporter::Reporter,
+        tokens: &mut TokenIterator,
+        data: &Data,
+    ) -> Result<stmt::Stmt, ParseError> {
+        let result = if self.match_next_token(tokens, &data.declaration_tokens) {
+            self.variable_declaration(reporter, tokens, data)
+        } else {
+            self.statement(reporter, tokens, data)
+        };
+        if result.is_err() {
+            self.synchronize(tokens);
+        }
+        result
+    }
+
+    fn variable_declaration(
+        &mut self,
+        reporter: &dyn reporter::Reporter,
+        tokens: &mut TokenIterator,
+        data: &Data,
+    ) -> Result<stmt::Stmt, ParseError> {
+        self.consume(
+            reporter,
+            tokens,
+            &token::TokenType::Identifier,
+            "Expect a variable name",
+        )?;
+        let name = self.take_current_token()?;
+
+        let initialiser = if self.match_next_token(tokens, &data.assignment_tokens) {
+            Some(self.expression(reporter, tokens, data)?)
+        } else {
+            None
+        };
+        self.consume_semicolon(reporter, tokens, "Expect ';' after variable declaration")?;
+        Ok(stmt::Stmt::Var { name, initialiser })
     }
 
     fn statement(
@@ -123,12 +172,7 @@ impl Parser {
         data: &Data,
     ) -> Result<stmt::Stmt, ParseError> {
         let value = self.expression(reporter, tokens, data)?;
-        self.consume(
-            reporter,
-            tokens,
-            &token::TokenType::Semicolon,
-            "Expect ';' after value",
-        )?;
+        self.consume_semicolon(reporter, tokens, "Expect ';' after value")?;
         Ok(stmt::Stmt::Print { value })
     }
 
@@ -139,12 +183,7 @@ impl Parser {
         data: &Data,
     ) -> Result<stmt::Stmt, ParseError> {
         let expression = self.expression(reporter, tokens, data)?;
-        self.consume(
-            reporter,
-            tokens,
-            &token::TokenType::Semicolon,
-            "Expect ';' after expression",
-        )?;
+        self.consume_semicolon(reporter, tokens, "Expect ';' after expression")?;
         Ok(stmt::Stmt::Expression { expression })
     }
 
@@ -249,6 +288,10 @@ impl Parser {
             return Ok(expr::Expr::build_literal(self.take_current_token()?));
         }
 
+        if self.match_next_token(tokens, &data.identifier_tokens) {
+            return Ok(expr::Expr::build_variable(self.take_current_token()?));
+        }
+
         if self.match_next_token(tokens, &data.start_of_group_tokens) {
             let expr = self.expression(reporter, tokens, data)?;
             self.consume(
@@ -276,6 +319,16 @@ impl Parser {
         }
 
         self.add_diagnostic(reporter, tokens, message)?;
+        Ok(())
+    }
+
+    fn consume_semicolon(
+        &mut self,
+        reporter: &dyn reporter::Reporter,
+        tokens: &mut TokenIterator,
+        message: &str,
+    ) -> Result<(), ParseError> {
+        self.consume(reporter, tokens, &token::TokenType::Semicolon, message)?;
         Ok(())
     }
 

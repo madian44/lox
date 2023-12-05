@@ -31,6 +31,10 @@ fn evalute_stmt(
             }
             Err(err) => Err(err),
         },
+        stmt::Stmt::Var {
+            name: _,
+            initialiser: _,
+        } => todo!(),
     }
 }
 
@@ -49,6 +53,7 @@ fn evalute_expr(
             operator,
             right,
         } => evalute_binary(reporter, expression, left, operator, right),
+        expr::Expr::Variable { name: _ } => todo!(),
     }
 }
 
@@ -62,6 +67,7 @@ fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
             right: _,
         } => get_start_location(left),
         expr::Expr::Grouping { expression } => get_start_location(expression),
+        expr::Expr::Variable { name } => &name.start,
     }
 }
 
@@ -75,6 +81,7 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
             right,
         } => get_end_location(right),
         expr::Expr::Grouping { expression } => get_end_location(expression),
+        expr::Expr::Variable { name } => &name.end,
     }
 }
 

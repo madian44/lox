@@ -4,7 +4,16 @@ pub fn print_stmt(stmt: &stmt::Stmt) -> String {
     match stmt {
         stmt::Stmt::Expression { expression } => format!("{} ;", print_expr(expression)),
         stmt::Stmt::Print { value } => format!("PRINT {} ;", print_expr(value)),
+        stmt::Stmt::Var { name, initialiser } => print_stmt_variable(name, initialiser),
     }
+}
+
+fn print_stmt_variable(name: &token::Token, initialiser: &Option<expr::Expr>) -> String {
+    let initialiser = match initialiser {
+        Some(expr) => format!("= {} ", print_expr(expr)),
+        None => "".to_string(),
+    };
+    format!("VAR {} {};", name.lexeme, initialiser)
 }
 
 pub fn print_expr(expr: &expr::Expr) -> String {
@@ -13,22 +22,27 @@ pub fn print_expr(expr: &expr::Expr) -> String {
             left,
             operator,
             right,
-        } => print_binary(left, operator, right),
-        expr::Expr::Grouping { expression } => print_grouping(expression),
-        expr::Expr::Literal { value } => print_literal(value),
-        expr::Expr::Unary { operator, right } => print_unary(operator, right),
+        } => print_expr_binary(left, operator, right),
+        expr::Expr::Grouping { expression } => print_expr_grouping(expression),
+        expr::Expr::Literal { value } => print_expr_literal(value),
+        expr::Expr::Unary { operator, right } => print_expr_unary(operator, right),
+        expr::Expr::Variable { name } => print_expr_variable(name),
     }
 }
 
-fn print_binary(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
+fn print_expr_variable(name: &token::Token) -> String {
+    name.lexeme.clone()
+}
+
+fn print_expr_binary(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
     parenthesize(&operator.lexeme, vec![left, right])
 }
 
-fn print_grouping(expression: &expr::Expr) -> String {
+fn print_expr_grouping(expression: &expr::Expr) -> String {
     parenthesize("group", vec![expression])
 }
 
-fn print_literal(value: &token::Token) -> String {
+fn print_expr_literal(value: &token::Token) -> String {
     let value = match &value.literal {
         token::Literal::Number(n) => n.to_string(),
         token::Literal::String(s) => s.to_string(),
@@ -40,7 +54,7 @@ fn print_literal(value: &token::Token) -> String {
     parenthesize(&value, vec![])
 }
 
-fn print_unary(operator: &token::Token, right: &expr::Expr) -> String {
+fn print_expr_unary(operator: &token::Token, right: &expr::Expr) -> String {
     parenthesize(&operator.lexeme, vec![right])
 }
 

@@ -1,6 +1,4 @@
-use crate::location;
-use crate::reporter;
-use crate::token;
+use crate::{location, reporter, token};
 use std::collections::LinkedList;
 use std::iter::Peekable;
 use std::str::CharIndices;

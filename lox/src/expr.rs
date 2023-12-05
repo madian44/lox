@@ -17,6 +17,9 @@ pub enum Expr {
         operator: token::Token,
         right: Box<Expr>,
     },
+    Variable {
+        name: token::Token,
+    },
 }
 
 impl Expr {
@@ -43,5 +46,8 @@ impl Expr {
             operator,
             right: Box::new(right),
         }
+    }
+    pub fn build_variable(name: token::Token) -> Self {
+        Expr::Variable { name }
     }
 }
