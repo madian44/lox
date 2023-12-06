@@ -3,16 +3,16 @@ mod common;
 use lox::Reporter;
 
 #[test]
-fn test_expression() {
+fn test_statements() {
     let mut reporter = common::TestReporter::build();
     let tests = vec![
-        ("\"hello,\" + \" world\";", "[interpreter] hello, world"),
+        ("\"hello,\" + \" world\";", "[interpreter] \"hello, world\""),
         ("10 + 10;", "[interpreter] 20"),
         ("10 - 5;", "[interpreter] 5"),
         ("10 > 5;", "[interpreter] true"),
         ("5 > 5;", "[interpreter] false"),
         ("5 >= 5;", "[interpreter] true"),
-        ("\"a string\";", "[interpreter] a string"),
+        ("\"a string\";", "[interpreter] \"a string\""),
         ("10.5 ;", "[interpreter] 10.5"),
         ("true ;", "[interpreter] true"),
         ("false ;", "[interpreter] false"),
@@ -34,13 +34,17 @@ fn test_expression() {
         ("!!\"string\";", "[interpreter] true"),
         ("((10 - 5) + 1) / (2 * 3);", "[interpreter] 1"),
         ("print ((10 - 5) + 1) / (2 * 3);", "[print] 1"),
+        ("var a = 1 ; { a = 2; print a;}", "[print] 2"),
     ];
 
-    for (expression, expected_message) in tests {
+    for (source, expected_message) in tests {
         reporter.reset();
-        lox::interpret(&reporter, expression);
+        lox::interpret(&reporter, source);
         if !reporter.has_message(expected_message) || reporter.has_diagnostics() {
-            println!("Unexpected errors: {} != {}", expression, expected_message);
+            println!(
+                "Unexpected errors or missing message: {} != {}",
+                source, expected_message
+            );
             reporter.print_contents();
             panic!("Unexpected errors");
         }
@@ -91,6 +95,34 @@ fn test_failures() {
                     line_offset: 28,
                 },
                 message: "Operand should be a number".to_string(),
+            },
+        ),
+        (
+            "{b = 1;}",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 1,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 6,
+                },
+                message: "Undefined variable 'b'".to_string(),
+            },
+        ),
+        (
+            "print a;",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 6,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 7,
+                },
+                message: "Undefined variable 'a'".to_string(),
             },
         ),
     ];

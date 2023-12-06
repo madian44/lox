@@ -57,6 +57,10 @@ pub mod test {
             self.diagnostics.borrow().get(index).cloned()
         }
 
+        pub fn has_message(&self, message: &str) -> bool {
+            self.messages.borrow().iter().any(|m| m.message == message)
+        }
+
         pub fn reset(&self) {
             self.messages.borrow_mut().clear();
             self.diagnostics.borrow_mut().clear();

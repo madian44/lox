@@ -138,6 +138,11 @@ function diagnosticAdder(collection: vscode.Diagnostic[], startLine: number = 0,
 
 function messageAdder()  {
 	return (message: string) => {
+		if(vscode.workspace.getConfiguration().get('lox.showAllMessages') !== true) {
+			if(!message.startsWith("[print]")) {
+				return;
+			}
+		}
 		outputChannel.appendLine(message);
 	};
 }

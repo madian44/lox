@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+- Implementation of Statements and State chapter.
+
 ## 0.7.0
 
 ### Added

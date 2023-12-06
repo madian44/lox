@@ -1,4 +1,5 @@
 use crate::{expr, token};
+use std::collections::LinkedList;
 
 pub enum Stmt {
     Expression {
@@ -10,5 +11,8 @@ pub enum Stmt {
     Var {
         name: token::Token,
         initialiser: Option<expr::Expr>,
+    },
+    Block {
+        statements: LinkedList<Stmt>,
     },
 }

@@ -1,10 +1,12 @@
 use crate::{expr, stmt, token};
+use std::collections::LinkedList;
 
 pub fn print_stmt(stmt: &stmt::Stmt) -> String {
     match stmt {
         stmt::Stmt::Expression { expression } => format!("{} ;", print_expr(expression)),
         stmt::Stmt::Print { value } => format!("PRINT {} ;", print_expr(value)),
         stmt::Stmt::Var { name, initialiser } => print_stmt_variable(name, initialiser),
+        stmt::Stmt::Block { statements } => print_stmt_block(statements),
     }
 }
 
@@ -14,6 +16,18 @@ fn print_stmt_variable(name: &token::Token, initialiser: &Option<expr::Expr>) ->
         None => "".to_string(),
     };
     format!("VAR {} {};", name.lexeme, initialiser)
+}
+
+fn print_stmt_block(statements: &LinkedList<stmt::Stmt>) -> String {
+    let mut result = String::from("{\n");
+
+    for statement in statements {
+        result.push_str(&print_stmt(statement));
+        result.push('\n');
+    }
+
+    result.push('}');
+    result
 }
 
 pub fn print_expr(expr: &expr::Expr) -> String {
@@ -45,12 +59,12 @@ fn print_expr_grouping(expression: &expr::Expr) -> String {
 
 fn print_expr_literal(value: &token::Token) -> String {
     let value = match &value.literal {
-        token::Literal::Number(n) => n.to_string(),
-        token::Literal::String(s) => s.to_string(),
-        token::Literal::None => "None".to_string(),
-        token::Literal::Nil => "Nil".to_string(),
-        token::Literal::False => "False".to_string(),
-        token::Literal::True => "True".to_string(),
+        Some(token::Literal::Number(n)) => n.to_string(),
+        Some(token::Literal::String(s)) => s.to_string(),
+        Some(token::Literal::Nil) => "Nil".to_string(),
+        Some(token::Literal::False) => "False".to_string(),
+        Some(token::Literal::True) => "True".to_string(),
+        None => "None".to_string(),
     };
     parenthesize(&value, vec![])
 }
@@ -91,14 +105,14 @@ mod test {
                     "-",
                     blank_location,
                     blank_location,
-                    token::Literal::None,
+                    None,
                 ),
                 expr::Expr::build_literal(token::Token::new(
                     token::TokenType::Number,
                     "123.0",
                     blank_location,
                     blank_location,
-                    token::Literal::Number(123.0),
+                    Some(token::Literal::Number(123.0)),
                 )),
             ),
             token::Token::new(
@@ -106,14 +120,14 @@ mod test {
                 "*",
                 blank_location,
                 blank_location,
-                token::Literal::None,
+                None,
             ),
             expr::Expr::build_grouping(expr::Expr::build_literal(token::Token::new(
                 token::TokenType::Number,
                 "45.67",
                 blank_location,
                 blank_location,
-                token::Literal::Number(45.67),
+                Some(token::Literal::Number(45.67)),
             ))),
         );
 

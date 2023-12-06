@@ -28,6 +28,7 @@ struct Data {
     declaration_tokens: Vec<token::TokenType>,
     assignment_tokens: Vec<token::TokenType>,
     identifier_tokens: Vec<token::TokenType>,
+    block_tokens: Vec<token::TokenType>,
 }
 
 impl Data {
@@ -54,6 +55,7 @@ impl Data {
         let declaration_tokens = vec![token::TokenType::Var];
         let assignment_tokens = vec![token::TokenType::Equal];
         let identifier_tokens = vec![token::TokenType::Identifier];
+        let block_tokens = vec![token::TokenType::LeftBrace];
         Data {
             equality_tokens,
             comparison_tokens,
@@ -66,6 +68,7 @@ impl Data {
             declaration_tokens,
             assignment_tokens,
             identifier_tokens,
+            block_tokens,
         }
     }
 }
@@ -76,7 +79,14 @@ struct Parser<'k> {
     reporter: &'k dyn reporter::Reporter,
     tokens: Peekable<IntoIter<token::Token>>,
 }
-
+///
+/// Parser stores the current token.
+/// The current token can be taken with `take_current_token`
+/// `advance` will take the next available token and store it in `current_token`
+/// `consume_matching_token` if the next token matches a given token `advance` and return `true` otherwise it returns `false` and does not `advance`.
+/// `consume_token` will `advance` if the next token matches the requested token type and fail otherwise
+/// `check_next_token` checks if the next token is of the requested type
+/// `declaration` will try to synchronize to a semi-colon after a failure is detected
 impl<'k> Parser<'k> {
     fn new(reporter: &'k dyn reporter::Reporter, tokens: LinkedList<token::Token>) -> Self {
         Parser {
@@ -111,7 +121,7 @@ impl<'k> Parser<'k> {
     }
 
     fn declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        let result = if self.match_next_token(&data.declaration_tokens) {
+        let result = if self.consume_matching_token(&data.declaration_tokens) {
             self.variable_declaration(data)
         } else {
             self.statement(data)
@@ -123,10 +133,10 @@ impl<'k> Parser<'k> {
     }
 
     fn variable_declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        self.consume(&token::TokenType::Identifier, "Expect a variable name")?;
+        self.consume_token(&token::TokenType::Identifier, "Expect a variable name")?;
         let name = self.take_current_token()?;
 
-        let initialiser = if self.match_next_token(&data.assignment_tokens) {
+        let initialiser = if self.consume_matching_token(&data.assignment_tokens) {
             Some(self.expression(data)?)
         } else {
             None
@@ -136,8 +146,10 @@ impl<'k> Parser<'k> {
     }
 
     fn statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        if self.match_next_token(&data.print_tokens) {
+        if self.consume_matching_token(&data.print_tokens) {
             self.print_statement(data)
+        } else if self.consume_matching_token(&data.block_tokens) {
+            self.block_statement(data)
         } else {
             self.expression_statement(data)
         }
@@ -147,6 +159,18 @@ impl<'k> Parser<'k> {
         let value = self.expression(data)?;
         self.consume_semicolon("Expect ';' after value")?;
         Ok(stmt::Stmt::Print { value })
+    }
+
+    fn block_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        let mut statements = LinkedList::new();
+
+        while !self.check_next_token(&token::TokenType::RightBrace) && !self.is_at_end() {
+            statements.push_back(self.declaration(data)?);
+        }
+
+        self.consume_token(&token::TokenType::RightBrace, "Expect '}' after block")?;
+
+        Ok(stmt::Stmt::Block { statements })
     }
 
     fn expression_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
@@ -162,8 +186,7 @@ impl<'k> Parser<'k> {
     fn assignment(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
         let expr = self.equality(data)?;
 
-        if self.match_next_token(&data.assignment_tokens) {
-            let _ = self.take_current_token()?;
+        if self.consume_matching_token(&data.assignment_tokens) {
             let value = self.assignment(data)?;
 
             if let expr::Expr::Variable { name } = expr {
@@ -177,7 +200,7 @@ impl<'k> Parser<'k> {
     fn equality(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
         let mut expr = self.comparison(data)?;
 
-        while self.match_next_token(&data.equality_tokens) {
+        while self.consume_matching_token(&data.equality_tokens) {
             let operator = self.take_current_token()?;
             let right = self.comparison(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
@@ -189,7 +212,7 @@ impl<'k> Parser<'k> {
     fn comparison(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
         let mut expr = self.term(data)?;
 
-        while self.match_next_token(&data.comparison_tokens) {
+        while self.consume_matching_token(&data.comparison_tokens) {
             let operator = self.take_current_token()?;
             let right = self.term(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
@@ -201,7 +224,7 @@ impl<'k> Parser<'k> {
     fn term(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
         let mut expr = self.factor(data)?;
 
-        while self.match_next_token(&data.term_tokens) {
+        while self.consume_matching_token(&data.term_tokens) {
             let operator = self.take_current_token()?;
             let right = self.factor(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
@@ -213,7 +236,7 @@ impl<'k> Parser<'k> {
     fn factor(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
         let mut expr = self.unary(data)?;
 
-        while self.match_next_token(&data.factor_tokens) {
+        while self.consume_matching_token(&data.factor_tokens) {
             let operator = self.take_current_token()?;
             let right = self.unary(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
@@ -223,7 +246,7 @@ impl<'k> Parser<'k> {
     }
 
     fn unary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        if self.match_next_token(&data.unary_tokens) {
+        if self.consume_matching_token(&data.unary_tokens) {
             let operator = self.take_current_token()?;
             let right = self.unary(data)?;
             return Ok(expr::Expr::build_unary(operator, right));
@@ -232,24 +255,24 @@ impl<'k> Parser<'k> {
     }
 
     fn primary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        if self.match_next_token(&data.primary_tokens) {
+        if self.consume_matching_token(&data.primary_tokens) {
             return Ok(expr::Expr::build_literal(self.take_current_token()?));
         }
 
-        if self.match_next_token(&data.identifier_tokens) {
+        if self.consume_matching_token(&data.identifier_tokens) {
             return Ok(expr::Expr::build_variable(self.take_current_token()?));
         }
 
-        if self.match_next_token(&data.start_of_group_tokens) {
+        if self.consume_matching_token(&data.start_of_group_tokens) {
             let expr = self.expression(data)?;
-            self.consume(&token::TokenType::RightParen, "expect ')' after expression")?;
+            self.consume_token(&token::TokenType::RightParen, "expect ')' after expression")?;
             return Ok(expr::Expr::build_grouping(expr));
         }
 
         self.add_diagnostic("Primary expression expected")
     }
 
-    fn consume(
+    fn consume_token(
         &mut self,
         token_to_consume: &token::TokenType,
         message: &str,
@@ -259,16 +282,16 @@ impl<'k> Parser<'k> {
             return Ok(());
         }
 
-        self.add_diagnostic(message)?;
+        self.add_diagnostic(message)?; // cause method to fail
         Ok(())
     }
 
     fn consume_semicolon(&mut self, message: &str) -> Result<(), ParseError> {
-        self.consume(&token::TokenType::Semicolon, message)?;
+        self.consume_token(&token::TokenType::Semicolon, message)?;
         Ok(())
     }
 
-    fn match_next_token(&mut self, token_types: &[token::TokenType]) -> bool {
+    fn consume_matching_token(&mut self, token_types: &[token::TokenType]) -> bool {
         if token_types.iter().any(|t| self.check_next_token(t)) {
             self.advance();
             true
@@ -327,6 +350,7 @@ impl<'k> Parser<'k> {
         while !self.is_at_end() {
             if let Some(token) = self.tokens.peek() {
                 if token.token_type == token::TokenType::Semicolon {
+                    self.advance();
                     return;
                 }
             }
@@ -369,6 +393,10 @@ mod test {
             (" 10 > 11;", "(> (10) (11)) ;"),
             (" 10 * 11;", "(* (10) (11)) ;"),
             ("!!10;", "(! (! (10))) ;"),
+            ("var a = 10;", "VAR a = (10) ;"),
+            ("var a;", "VAR a ;"),
+            ("{ var a; } ", "{\nVAR a ;\n}"),
+            ("a = 10 ;", "a = (10) ;"),
         ];
 
         for (src, expected_parse) in tests {
@@ -376,11 +404,16 @@ mod test {
 
             let tokens = scanner::scan_tokens(&reporter, src);
             let statements = parse(&reporter, tokens);
-            assert_eq!(statements.len(), 1);
-            let parse = ast_printer::print_stmt(statements.front().unwrap());
-            if parse != expected_parse || reporter.has_diagnostics() {
+
+            let parse = if statements.front().is_some() {
+                ast_printer::print_stmt(statements.front().unwrap())
+            } else {
+                "".to_string()
+            };
+            if statements.len() != 1 || parse != expected_parse || reporter.has_diagnostics() {
                 reporter.print_contents();
             }
+            assert_eq!(statements.len(), 1, "Unexpected statements for '{}'", src);
             assert_eq!(
                 parse, expected_parse,
                 "unexpected parse of '{}'; {} does not match {}",
@@ -403,21 +436,17 @@ mod test {
             ("( \"10\"", "expect ')' after expression"),
             ("print 10", "Expect ';' after value"),
             ("\"10\"", "Expect ';' after expression"),
+            ("\"10\" = 10 ;", "Invalid assignment target"),
         ];
 
         for (src, expected_message) in tests {
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
-            let statements = parse(&reporter, tokens);
-            if !statements.is_empty() {
-                panic!(
-                    "Unexpected statement found for '{}' : {}",
-                    src,
-                    ast_printer::print_stmt(statements.front().unwrap())
-                );
-            };
-            assert!(reporter.has_diagnostics());
-            assert_eq!(reporter.diagnostics_len(), 1);
+            let _ = parse(&reporter, tokens);
+            if reporter.diagnostics_len() != 1 {
+                reporter.print_contents();
+                panic!("Unexpected diagnostics for '{}'", src);
+            }
 
             assert_eq!(
                 reporter

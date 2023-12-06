@@ -87,7 +87,6 @@ impl<'a> Keywords<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum Literal {
-    None,
     String(String),
     Number(f64),
     True,
@@ -95,12 +94,12 @@ pub enum Literal {
     Nil,
 }
 
-pub fn get_keyword_literal(token_type: &TokenType) -> Literal {
+pub fn get_keyword_literal(token_type: &TokenType) -> Option<Literal> {
     match token_type {
-        TokenType::False => Literal::False,
-        TokenType::True => Literal::True,
-        TokenType::Nil => Literal::Nil,
-        _ => Literal::None,
+        TokenType::False => Some(Literal::False),
+        TokenType::True => Some(Literal::True),
+        TokenType::Nil => Some(Literal::Nil),
+        _ => None,
     }
 }
 
@@ -108,7 +107,7 @@ pub fn get_keyword_literal(token_type: &TokenType) -> Literal {
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
-    pub literal: Literal,
+    pub literal: Option<Literal>,
     pub start: location::FileLocation,
     pub end: location::FileLocation,
 }
@@ -119,7 +118,7 @@ impl Token {
         lexeme: &str,
         start: location::FileLocation,
         end: location::FileLocation,
-        literal: Literal,
+        literal: Option<Literal>,
     ) -> Self {
         Token {
             token_type,

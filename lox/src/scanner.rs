@@ -169,7 +169,7 @@ impl<'k> Scanner<'k> {
             lexeme,
             location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
             location::FileLocation::new(self.current_line_number, self.current_line_offset),
-            token::Literal::None,
+            None,
         )
     }
 
@@ -180,9 +180,9 @@ impl<'k> Scanner<'k> {
             lexeme,
             location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
             location::FileLocation::new(self.current_line_number, self.current_line_offset),
-            token::Literal::String(
+            Some(token::Literal::String(
                 source[(self.start_of_token + 1)..=(self.current_end_of_token - 1)].to_string(),
-            ),
+            )),
         )
     }
 
@@ -193,7 +193,7 @@ impl<'k> Scanner<'k> {
             lexeme,
             location::FileLocation::new(self.token_start_line_number, self.token_start_line_offset),
             location::FileLocation::new(self.current_line_number, self.current_line_offset),
-            token::Literal::Number(lexeme.parse().unwrap()),
+            Some(token::Literal::Number(lexeme.parse().unwrap())),
         )
     }
 
@@ -349,7 +349,7 @@ mod test {
                     "(",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 1),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -359,7 +359,7 @@ mod test {
                     "(",
                     location::FileLocation::new(0, 1),
                     location::FileLocation::new(0, 2),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -369,7 +369,7 @@ mod test {
                     "!",
                     location::FileLocation::new(0, 1),
                     location::FileLocation::new(0, 2),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -379,7 +379,7 @@ mod test {
                     "!=",
                     location::FileLocation::new(0, 1),
                     location::FileLocation::new(0, 3),
-                    token::Literal::None,
+                    None,
                 )],
             ),
         ];
@@ -397,14 +397,14 @@ mod test {
                     "(",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 1),
-                    token::Literal::None,
+                    None,
                 ),
                 token::Token::new(
                     token::TokenType::RightParen,
                     ")",
                     location::FileLocation::new(0, 2),
                     location::FileLocation::new(0, 3),
-                    token::Literal::None,
+                    None,
                 ),
             ],
         )];
@@ -422,14 +422,14 @@ mod test {
                     "(",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 1),
-                    token::Literal::None,
+                    None,
                 ),
                 token::Token::new(
                     token::TokenType::RightParen,
                     ")",
                     location::FileLocation::new(1, 0),
                     location::FileLocation::new(1, 1),
-                    token::Literal::None,
+                    None,
                 ),
             ],
         )];
@@ -447,14 +447,14 @@ mod test {
                     "(",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 1),
-                    token::Literal::None,
+                    None,
                 ),
                 token::Token::new(
                     token::TokenType::RightParen,
                     ")",
                     location::FileLocation::new(1, 0),
                     location::FileLocation::new(1, 1),
-                    token::Literal::None,
+                    None,
                 ),
             ],
         )];
@@ -472,7 +472,7 @@ mod test {
                     "\"a string\"",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 10),
-                    token::Literal::String("a string".to_string()),
+                    Some(token::Literal::String("a string".to_string())),
                 )],
             ),
             (
@@ -482,7 +482,9 @@ mod test {
                     "\"a string\nwith a new line\"",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(1, 16),
-                    token::Literal::String("a string\nwith a new line".to_string()),
+                    Some(token::Literal::String(
+                        "a string\nwith a new line".to_string(),
+                    )),
                 )],
             ),
         ];
@@ -500,7 +502,17 @@ mod test {
                     "10",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 2),
-                    token::Literal::Number(10f64),
+                    Some(token::Literal::Number(10f64)),
+                )],
+            ),
+            (
+                "10 ",
+                vec![token::Token::new(
+                    token::TokenType::Number,
+                    "10",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 2),
+                    Some(token::Literal::Number(10f64)),
                 )],
             ),
             (
@@ -511,14 +523,14 @@ mod test {
                         "10",
                         location::FileLocation::new(0, 0),
                         location::FileLocation::new(0, 2),
-                        token::Literal::Number(10f64),
+                        Some(token::Literal::Number(10f64)),
                     ),
                     token::Token::new(
                         token::TokenType::Dot,
                         ".",
                         location::FileLocation::new(0, 2),
                         location::FileLocation::new(0, 3),
-                        token::Literal::None,
+                        None,
                     ),
                 ],
             ),
@@ -529,7 +541,7 @@ mod test {
                     "10.1",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 4),
-                    token::Literal::Number(10.1f64),
+                    Some(token::Literal::Number(10.1f64)),
                 )],
             ),
         ];
@@ -547,7 +559,7 @@ mod test {
                     "andy",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 4),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -557,7 +569,7 @@ mod test {
                     "and",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 3),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -567,7 +579,7 @@ mod test {
                     "with_underscore",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 15),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -577,7 +589,7 @@ mod test {
                     "with123digits",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 13),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -587,7 +599,7 @@ mod test {
                     "_SHOUT",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 6),
-                    token::Literal::None,
+                    None,
                 )],
             ),
             (
@@ -597,7 +609,17 @@ mod test {
                     "false",
                     location::FileLocation::new(0, 0),
                     location::FileLocation::new(0, 5),
-                    token::Literal::False,
+                    Some(token::Literal::False),
+                )],
+            ),
+            (
+                "false ",
+                vec![token::Token::new(
+                    token::TokenType::False,
+                    "false",
+                    location::FileLocation::new(0, 0),
+                    location::FileLocation::new(0, 5),
+                    Some(token::Literal::False),
                 )],
             ),
         ];
@@ -616,14 +638,14 @@ mod test {
                         "(",
                         location::FileLocation::new(0, 0),
                         location::FileLocation::new(0, 1),
-                        token::Literal::None,
+                        None,
                     ),
                     token::Token::new(
                         token::TokenType::RightParen,
                         ")",
                         location::FileLocation::new(0, 1),
                         location::FileLocation::new(0, 2),
-                        token::Literal::None,
+                        None,
                     ),
                 ],
             ),
@@ -635,21 +657,21 @@ mod test {
                         "10",
                         location::FileLocation::new(0, 0),
                         location::FileLocation::new(0, 2),
-                        token::Literal::Number(10f64),
+                        Some(token::Literal::Number(10f64)),
                     ),
                     token::Token::new(
                         token::TokenType::Dot,
                         ".",
                         location::FileLocation::new(0, 2),
                         location::FileLocation::new(0, 3),
-                        token::Literal::None,
+                        None,
                     ),
                     token::Token::new(
                         token::TokenType::Bang,
                         "!",
                         location::FileLocation::new(0, 3),
                         location::FileLocation::new(0, 4),
-                        token::Literal::None,
+                        None,
                     ),
                 ],
             ),
@@ -661,21 +683,21 @@ mod test {
                         ".",
                         location::FileLocation::new(0, 0),
                         location::FileLocation::new(0, 1),
-                        token::Literal::None,
+                        None,
                     ),
                     token::Token::new(
                         token::TokenType::String,
                         "\"10.1\"",
                         location::FileLocation::new(0, 1),
                         location::FileLocation::new(0, 7),
-                        token::Literal::String("10.1".to_string()),
+                        Some(token::Literal::String("10.1".to_string())),
                     ),
                     token::Token::new(
                         token::TokenType::Number,
                         "10.1",
                         location::FileLocation::new(0, 7),
                         location::FileLocation::new(0, 11),
-                        token::Literal::Number(10.1f64),
+                        Some(token::Literal::Number(10.1f64)),
                     ),
                 ],
             ),

@@ -14,7 +14,7 @@ impl Display for LoxType {
             LoxType::Nil => write!(f, "nil"),
             LoxType::Boolean(bool) => write!(f, "{bool}"),
             LoxType::Number(number) => write!(f, "{number}"),
-            LoxType::String(string) => write!(f, "{string}"),
+            LoxType::String(string) => write!(f, "\"{string}\""),
         }
     }
 }

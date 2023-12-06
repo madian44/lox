@@ -4,10 +4,10 @@ use crate::{
 use std::collections::LinkedList;
 
 pub fn interpret(reporter: &dyn reporter::Reporter, statements: LinkedList<stmt::Stmt>) {
-    let interpreter = Interpreter::build(reporter);
-    let mut environment = environment::Environment::new();
+    let mut interpreter = Interpreter::build(reporter);
+
     for statement in statements {
-        if let Err(err) = interpreter.evaluate_stmt(&mut environment, &statement) {
+        if let Err(err) = interpreter.evaluate_stmt(&statement) {
             reporter.add_message(&err.message);
         }
     }
@@ -15,73 +15,83 @@ pub fn interpret(reporter: &dyn reporter::Reporter, statements: LinkedList<stmt:
 
 struct Interpreter<'k> {
     reporter: &'k dyn reporter::Reporter,
+    environment: environment::Environment,
 }
 
 impl<'k> Interpreter<'k> {
     fn build(reporter: &'k dyn reporter::Reporter) -> Self {
-        Self { reporter }
+        Self {
+            reporter,
+            environment: environment::Environment::new(),
+        }
     }
 
-    fn evaluate_stmt(
-        &self,
-        environment: &mut environment::Environment,
-        statement: &stmt::Stmt,
-    ) -> Result<(), RuntimeError> {
+    fn evaluate_stmt(&mut self, statement: &stmt::Stmt) -> Result<(), RuntimeError> {
         match statement {
             stmt::Stmt::Print { value } => {
-                let result = self.evaluate_expr(environment, value)?;
+                let result = self.evaluate_expr(value)?;
                 self.reporter.add_message(&format!("[print] {}", result));
                 Ok(())
             }
-            stmt::Stmt::Expression { expression } => {
-                match self.evaluate_expr(environment, expression) {
-                    Ok(r) => {
-                        self.reporter.add_message(&format!("[interpreter] {r}"));
-                        Ok(())
-                    }
-                    Err(err) => Err(err),
+            stmt::Stmt::Expression { expression } => match self.evaluate_expr(expression) {
+                Ok(r) => {
+                    self.reporter.add_message(&format!("[interpreter] {r}"));
+                    Ok(())
                 }
-            }
-            stmt::Stmt::Var { name, initialiser } => {
-                self.evaluate_stmt_var(environment, name, initialiser)
-            }
+                Err(err) => Err(err),
+            },
+            stmt::Stmt::Var { name, initialiser } => self.evaluate_stmt_var(name, initialiser),
+            stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
         }
     }
 
     fn evaluate_stmt_var(
-        &self,
-        environment: &mut environment::Environment,
+        &mut self,
         name: &token::Token,
         initialiser: &Option<expr::Expr>,
     ) -> Result<(), RuntimeError> {
         let initial_value = match initialiser {
-            Some(expression) => self.evaluate_expr(environment, expression)?,
+            Some(expression) => self.evaluate_expr(expression)?,
             None => lox_type::LoxType::Nil,
         };
-        environment.define(name.lexeme.clone(), &initial_value);
+        self.environment.define(&name.lexeme, &initial_value);
+        Ok(())
+    }
+
+    fn evaluate_stmt_block(
+        &mut self,
+        statements: &LinkedList<stmt::Stmt>,
+    ) -> Result<(), RuntimeError> {
+        self.environment.new_frame();
+        for statement in statements {
+            if let Err(err) = self.evaluate_stmt(statement) {
+                self.environment.pop_frame();
+                return Err(err);
+            }
+        }
+        self.environment.pop_frame();
         Ok(())
     }
 
     fn evaluate_expr(
-        &self,
-        environment: &mut environment::Environment,
+        &mut self,
         expression: &expr::Expr,
     ) -> Result<lox_type::LoxType, RuntimeError> {
         match expression {
             expr::Expr::Assign { name, value } => {
-                self.evaluate_expr_assign(environment, expression, name, value)
+                self.evaluate_expr_assign(expression, name, value)
             }
             expr::Expr::Binary {
                 left,
                 operator,
                 right,
-            } => self.evaluate_expr_binary(environment, expression, left, operator, right),
-            expr::Expr::Grouping { expression } => self.evaluate_expr(environment, expression),
+            } => self.evaluate_expr_binary(expression, left, operator, right),
+            expr::Expr::Grouping { expression } => self.evaluate_expr(expression),
             expr::Expr::Literal { value } => self.evaluate_expr_literal(expression, value),
             expr::Expr::Unary { operator, right } => {
-                self.evaluate_expr_unary(environment, expression, operator, right)
+                self.evaluate_expr_unary(expression, operator, right)
             }
-            expr::Expr::Variable { name } => self.evaluate_expr_var(expression, environment, name),
+            expr::Expr::Variable { name } => self.evaluate_expr_var(expression, name),
         }
     }
 
@@ -101,37 +111,37 @@ impl<'k> Interpreter<'k> {
         token: &token::Token,
     ) -> Result<lox_type::LoxType, RuntimeError> {
         match &token.literal {
-            token::Literal::Number(number) => Ok(lox_type::LoxType::Number(*number)),
-            token::Literal::String(string) => Ok(lox_type::LoxType::String(string.to_string())),
-            token::Literal::True => Ok(lox_type::LoxType::Boolean(true)),
-            token::Literal::False => Ok(lox_type::LoxType::Boolean(false)),
-            token::Literal::Nil => Ok(lox_type::LoxType::Nil),
+            Some(token::Literal::Number(number)) => Ok(lox_type::LoxType::Number(*number)),
+            Some(token::Literal::String(string)) => {
+                Ok(lox_type::LoxType::String(string.to_string()))
+            }
+            Some(token::Literal::True) => Ok(lox_type::LoxType::Boolean(true)),
+            Some(token::Literal::False) => Ok(lox_type::LoxType::Boolean(false)),
+            Some(token::Literal::Nil) => Ok(lox_type::LoxType::Nil),
             _ => self.add_diagnostic(expr, "Unhandled literal".to_string()),
         }
     }
 
     fn evaluate_expr_assign(
-        &self,
-        environment: &mut environment::Environment,
+        &mut self,
         expression: &expr::Expr,
         name: &token::Token,
         value: &expr::Expr,
     ) -> Result<lox_type::LoxType, RuntimeError> {
-        let value = self.evaluate_expr(environment, value)?;
-        if let Err(message) = environment.assign(name, &value) {
+        let value = self.evaluate_expr(value)?;
+        if let Err(message) = self.environment.assign(name, &value) {
             self.add_diagnostic(expression, message.message)?;
         }
         Ok(value)
     }
 
     fn evaluate_expr_unary(
-        &self,
-        environment: &mut environment::Environment,
+        &mut self,
         expression: &expr::Expr,
         operator: &token::Token,
         right: &expr::Expr,
     ) -> Result<lox_type::LoxType, RuntimeError> {
-        let right = self.evaluate_expr(environment, right)?;
+        let right = self.evaluate_expr(right)?;
         match operator.token_type {
             token::TokenType::Minus => {
                 let right = self.check_number_operand(expression, &right)?;
@@ -143,15 +153,14 @@ impl<'k> Interpreter<'k> {
     }
 
     fn evaluate_expr_binary(
-        &self,
-        environment: &mut environment::Environment,
+        &mut self,
         expression: &expr::Expr,
         left: &expr::Expr,
         operator: &token::Token,
         right: &expr::Expr,
     ) -> Result<lox_type::LoxType, RuntimeError> {
-        let left = self.evaluate_expr(environment, left)?;
-        let right = self.evaluate_expr(environment, right)?;
+        let left = self.evaluate_expr(left)?;
+        let right = self.evaluate_expr(right)?;
 
         if matches!(operator.token_type, token::TokenType::Plus) {
             if matches!(right, lox_type::LoxType::Number(_))
@@ -195,10 +204,9 @@ impl<'k> Interpreter<'k> {
     fn evaluate_expr_var(
         &self,
         expression: &expr::Expr,
-        environment: &mut environment::Environment,
         name: &token::Token,
     ) -> Result<lox_type::LoxType, RuntimeError> {
-        match environment.get(name) {
+        match self.environment.get(name) {
             Ok(value) => Ok(value),
             Err(err) => self.add_diagnostic(expression, err.message),
         }
@@ -341,7 +349,7 @@ mod test {
                 "\"\"",
                 blank_location,
                 blank_location,
-                token::Literal::String("".to_string()),
+                Some(token::Literal::String("".to_string())),
             ),
         };
 
@@ -393,7 +401,7 @@ mod test {
                 "\"\"",
                 blank_location,
                 blank_location,
-                token::Literal::String("".to_string()),
+                Some(token::Literal::String("".to_string())),
             ),
         };
 
@@ -482,6 +490,7 @@ mod test {
                 lox_type::LoxType::Boolean(true),
                 false,
             ),
+            (lox_type::LoxType::Nil, lox_type::LoxType::Nil, true),
         ];
 
         for (left, right, expected_result) in &tests {
@@ -497,15 +506,14 @@ mod test {
 
     fn test_expressions(tests: Vec<(&str, Result<lox_type::LoxType, RuntimeError>)>) {
         let reporter = TestReporter::build();
-        let interpreter = Interpreter::build(&reporter);
-        let mut environment = environment::Environment::new();
         for (src, expected_result) in tests {
+            let mut interpreter = Interpreter::build(&reporter);
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
             if let Some(statement) = parser::parse(&reporter, tokens).front() {
                 if let stmt::Stmt::Expression { expression } = statement {
                     assert_eq!(
-                        interpreter.evaluate_expr(&mut environment, expression),
+                        interpreter.evaluate_expr(expression),
                         expected_result,
                         "unexpected result: {} != {:?}",
                         ast_printer::print_expr(expression),
@@ -609,5 +617,84 @@ mod test {
         ];
 
         test_expressions(tests);
+    }
+
+    #[test]
+    fn test_stmt_var() {
+        let tests = vec![
+            (
+                "var a = \"value\";",
+                "a",
+                lox_type::LoxType::String("value".to_string()),
+            ),
+            ("var b;", "b", lox_type::LoxType::Nil),
+        ];
+
+        let blank_location = location::FileLocation::new(0, 0);
+        let reporter = TestReporter::build();
+        for (src, key, expected_value) in tests {
+            let mut interpreter = Interpreter::build(&reporter);
+            reporter.reset();
+            let tokens = scanner::scan_tokens(&reporter, src);
+            if let Some(statement) = parser::parse(&reporter, tokens).front() {
+                if let stmt::Stmt::Var {
+                    name: _,
+                    initialiser: _,
+                } = statement
+                {
+                    if let Err(msg) = interpreter.evaluate_stmt(statement) {
+                        panic!("Unexpected error for '{}': {}", src, msg.message);
+                    }
+                    let key = token::Token::new(
+                        token::TokenType::Identifier,
+                        key,
+                        blank_location,
+                        blank_location,
+                        None,
+                    );
+                    match interpreter.environment.get(&key) {
+                        Ok(value) => {
+                            assert_eq!(value, expected_value, "Unexpected value for '{}'", src)
+                        }
+                        Err(RuntimeError { message }) => {
+                            panic!("Unexpected error for '{}': {}", src, message)
+                        }
+                    }
+                } else {
+                    panic!("Invalid statement type for '{}'", src);
+                };
+            } else {
+                reporter.print_contents();
+                panic!("Statement not found for '{}'", src);
+            }
+        }
+    }
+
+    #[test]
+    fn test_stmt() {
+        let tests = vec![
+            ("print \"value\";", "[print] \"value\""),
+            ("10 + 10;", "[interpreter] 20"),
+            ("{true == false;} ", "[interpreter] false"),
+        ];
+
+        let reporter = TestReporter::build();
+        for (src, expected_message) in tests {
+            let mut interpreter = Interpreter::build(&reporter);
+            reporter.reset();
+            let tokens = scanner::scan_tokens(&reporter, src);
+            if let Some(statement) = parser::parse(&reporter, tokens).front() {
+                if let Err(msg) = interpreter.evaluate_stmt(statement) {
+                    panic!("Unexpected error for '{}': {}", src, msg.message);
+                }
+                if !reporter.has_message(expected_message) {
+                    reporter.print_contents();
+                    panic!("Missing expected message for '{}'", src);
+                }
+            } else {
+                reporter.print_contents();
+                panic!("Statement not found for '{}'", src);
+            }
+        }
     }
 }
