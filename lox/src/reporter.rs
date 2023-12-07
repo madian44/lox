@@ -2,13 +2,13 @@ use crate::location;
 
 pub trait Reporter {
     fn add_diagnostic(
-        &mut self,
+        &self,
         start: &location::FileLocation,
         end: &location::FileLocation,
         message: &str,
     );
 
-    fn add_message(&mut self, message: &str);
+    fn add_message(&self, message: &str);
 
     fn has_diagnostics(&self) -> bool;
 }
@@ -18,8 +18,9 @@ pub mod test {
 
     use super::*;
     use crate::location;
+    use std::cell::RefCell;
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Clone)]
     pub struct Diagnostic {
         pub start: location::FileLocation,
         pub end: location::FileLocation,
@@ -32,32 +33,46 @@ pub mod test {
     }
 
     pub struct TestReporter {
-        pub diagnostics: Vec<Diagnostic>,
-        pub messages: Vec<Message>,
+        diagnostics: RefCell<Vec<Diagnostic>>,
+        messages: RefCell<Vec<Message>>,
     }
 
     impl TestReporter {
         pub fn build() -> Self {
             TestReporter {
-                diagnostics: Vec::new(),
-                messages: Vec::new(),
+                diagnostics: RefCell::new(Vec::new()),
+                messages: RefCell::new(Vec::new()),
             }
         }
 
         pub fn has_messages(&self) -> bool {
-            !self.messages.is_empty()
+            !self.messages.borrow().is_empty()
         }
 
-        pub fn reset(&mut self) {
-            self.messages.clear();
-            self.diagnostics.clear();
+        pub fn diagnostics_len(&self) -> usize {
+            self.diagnostics.borrow().len()
+        }
+
+        pub fn diagnostic_get(&self, index: usize) -> Option<Diagnostic> {
+            self.diagnostics.borrow().get(index).cloned()
+        }
+
+        pub fn has_message(&self, message: &str) -> bool {
+            self.messages.borrow().iter().any(|m| m.message == message)
+        }
+
+        pub fn reset(&self) {
+            self.messages.borrow_mut().clear();
+            self.diagnostics.borrow_mut().clear();
         }
 
         pub fn print_contents(&self) {
             self.messages
+                .borrow()
                 .iter()
                 .for_each(|m| println!("[message] {m:?}"));
             self.diagnostics
+                .borrow()
                 .iter()
                 .for_each(|d| println!("[diagnostic] {d:?}"))
         }
@@ -65,25 +80,25 @@ pub mod test {
 
     impl Reporter for TestReporter {
         fn add_diagnostic(
-            &mut self,
+            &self,
             start: &location::FileLocation,
             end: &location::FileLocation,
             message: &str,
         ) {
-            self.diagnostics.push(Diagnostic {
+            self.diagnostics.borrow_mut().push(Diagnostic {
                 start: *start,
                 end: *end,
                 message: message.to_string(),
             });
         }
 
-        fn add_message(&mut self, message: &str) {
-            self.messages.push(Message {
+        fn add_message(&self, message: &str) {
+            self.messages.borrow_mut().push(Message {
                 message: message.to_string(),
             });
         }
         fn has_diagnostics(&self) -> bool {
-            !self.diagnostics.is_empty()
+            !self.diagnostics.borrow().is_empty()
         }
     }
 }

@@ -58,3 +58,4 @@ Typescript `vsce` extension.
  * Chapter 5 Representing Code
  * Chapter 6 Parsing Expressions
  * Chapter 7 Evaluating Expressions
+ * Chapter 8 Statements and State

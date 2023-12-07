@@ -1,41 +1,80 @@
-use crate::expr;
-use crate::token;
+use crate::{expr, stmt, token};
+use std::collections::LinkedList;
 
-pub fn print(expr: &expr::Expr) -> String {
+pub fn print_stmt(stmt: &stmt::Stmt) -> String {
+    match stmt {
+        stmt::Stmt::Expression { expression } => format!("{} ;", print_expr(expression)),
+        stmt::Stmt::Print { value } => format!("PRINT {} ;", print_expr(value)),
+        stmt::Stmt::Var { name, initialiser } => print_stmt_variable(name, initialiser),
+        stmt::Stmt::Block { statements } => print_stmt_block(statements),
+    }
+}
+
+fn print_stmt_variable(name: &token::Token, initialiser: &Option<expr::Expr>) -> String {
+    let initialiser = match initialiser {
+        Some(expr) => format!("= {} ", print_expr(expr)),
+        None => "".to_string(),
+    };
+    format!("VAR {} {};", name.lexeme, initialiser)
+}
+
+fn print_stmt_block(statements: &LinkedList<stmt::Stmt>) -> String {
+    let mut result = String::from("{\n");
+
+    for statement in statements {
+        result.push_str(&print_stmt(statement));
+        result.push('\n');
+    }
+
+    result.push('}');
+    result
+}
+
+pub fn print_expr(expr: &expr::Expr) -> String {
     match expr {
         expr::Expr::Binary {
             left,
             operator,
             right,
-        } => print_binary(left, operator, right),
-        expr::Expr::Grouping { expression } => print_grouping(expression),
-        expr::Expr::Literal { value } => print_literal(value),
-        expr::Expr::Unary { operator, right } => print_unary(operator, right),
+        } => print_expr_binary(left, operator, right),
+        expr::Expr::Grouping { expression } => print_expr_grouping(expression),
+        expr::Expr::Literal { value } => print_expr_literal(value),
+        expr::Expr::Unary { operator, right } => print_expr_unary(operator, right),
+        expr::Expr::Variable { name } => print_expr_variable(name),
+        expr::Expr::Assign { name, value } => print_expr_assign(name, value),
     }
 }
 
-fn print_binary(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
+fn print_expr_assign(name: &token::Token, value: &expr::Expr) -> String {
+    format!("{} = {}", name.lexeme, print_expr(value))
+}
+
+fn print_expr_binary(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
     parenthesize(&operator.lexeme, vec![left, right])
 }
 
-fn print_grouping(expression: &expr::Expr) -> String {
+fn print_expr_grouping(expression: &expr::Expr) -> String {
     parenthesize("group", vec![expression])
 }
 
-fn print_literal(value: &token::Token) -> String {
+fn print_expr_literal(value: &token::Token) -> String {
     let value = match &value.literal {
-        token::Literal::Number(n) => n.to_string(),
-        token::Literal::String(s) => s.to_string(),
-        token::Literal::None => "None".to_string(),
-        token::Literal::Nil => "Nil".to_string(),
-        token::Literal::False => "False".to_string(),
-        token::Literal::True => "True".to_string(),
+        Some(token::Literal::Number(n)) => n.to_string(),
+        Some(token::Literal::String(s)) => s.to_string(),
+        Some(token::Literal::Nil) => "Nil".to_string(),
+        Some(token::Literal::False) => "False".to_string(),
+        Some(token::Literal::True) => "True".to_string(),
+        None => "None".to_string(),
     };
     parenthesize(&value, vec![])
 }
 
-fn print_unary(operator: &token::Token, right: &expr::Expr) -> String {
+fn print_expr_unary(operator: &token::Token, right: &expr::Expr) -> String {
     parenthesize(&operator.lexeme, vec![right])
+}
+
+fn print_expr_variable(name: &token::Token) -> String {
+    name.lexeme.clone()
 }
 
 fn parenthesize(name: &str, exprs: Vec<&expr::Expr>) -> String {
@@ -43,7 +82,7 @@ fn parenthesize(name: &str, exprs: Vec<&expr::Expr>) -> String {
     output.push_str(name);
     for expr in exprs {
         output.push(' ');
-        output.push_str(&print(expr))
+        output.push_str(&print_expr(expr))
     }
 
     output.push(')');
@@ -66,14 +105,14 @@ mod test {
                     "-",
                     blank_location,
                     blank_location,
-                    token::Literal::None,
+                    None,
                 ),
                 expr::Expr::build_literal(token::Token::new(
                     token::TokenType::Number,
                     "123.0",
                     blank_location,
                     blank_location,
-                    token::Literal::Number(123.0),
+                    Some(token::Literal::Number(123.0)),
                 )),
             ),
             token::Token::new(
@@ -81,19 +120,21 @@ mod test {
                 "*",
                 blank_location,
                 blank_location,
-                token::Literal::None,
+                None,
             ),
             expr::Expr::build_grouping(expr::Expr::build_literal(token::Token::new(
                 token::TokenType::Number,
                 "45.67",
                 blank_location,
                 blank_location,
-                token::Literal::Number(45.67),
+                Some(token::Literal::Number(45.67)),
             ))),
         );
 
-        let result = print(&expression);
+        let statement = stmt::Stmt::Print { value: expression };
 
-        assert_eq!("(* (- (123)) (group (45.67)))", result);
+        let result = print_stmt(&statement);
+
+        assert_eq!("PRINT (* (- (123)) (group (45.67))) ;", result);
     }
 }

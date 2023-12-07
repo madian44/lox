@@ -1,159 +1,249 @@
-use crate::expr;
-use crate::location;
-use crate::lox_type;
-use crate::reporter;
-use crate::token;
+use crate::{
+    environment, expr, location, lox_type, reporter, runtime_error::RuntimeError, stmt, token,
+};
+use std::collections::LinkedList;
 
-#[derive(Debug, PartialEq)]
-struct RuntimeError {
-    message: String,
-}
+pub fn interpret(reporter: &dyn reporter::Reporter, statements: LinkedList<stmt::Stmt>) {
+    let mut interpreter = Interpreter::build(reporter);
 
-pub fn interpret(
-    reporter: &mut dyn reporter::Reporter,
-    expression: &expr::Expr,
-) -> Option<lox_type::LoxType> {
-    match evalute(reporter, expression) {
-        Err(err) => {
+    for statement in statements {
+        if let Err(err) = interpreter.evaluate_stmt(&statement) {
             reporter.add_message(&err.message);
-            None
         }
-        Ok(t) => Some(t),
     }
 }
 
-fn evalute(
-    reporter: &mut dyn reporter::Reporter,
-    expression: &expr::Expr,
-) -> Result<lox_type::LoxType, RuntimeError> {
-    match expression {
-        expr::Expr::Literal { value } => evaluate_literal(reporter, expression, value),
-        expr::Expr::Grouping { expression } => evalute(reporter, expression),
-        expr::Expr::Unary { operator, right } => {
-            evalute_unary(reporter, expression, operator, right)
+struct Interpreter<'k> {
+    reporter: &'k dyn reporter::Reporter,
+    environment: environment::Environment,
+}
+
+impl<'k> Interpreter<'k> {
+    fn build(reporter: &'k dyn reporter::Reporter) -> Self {
+        Self {
+            reporter,
+            environment: environment::Environment::new(),
         }
-        expr::Expr::Binary {
-            left,
-            operator,
-            right,
-        } => evalute_binary(reporter, expression, left, operator, right),
     }
-}
 
-fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
-    match expr {
-        expr::Expr::Literal { value } => &value.start,
-        expr::Expr::Unary { operator, right: _ } => &operator.start,
-        expr::Expr::Binary {
-            left,
-            operator: _,
-            right: _,
-        } => get_start_location(left),
-        expr::Expr::Grouping { expression } => get_start_location(expression),
-    }
-}
-
-fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
-    match expr {
-        expr::Expr::Literal { value } => &value.end,
-        expr::Expr::Unary { operator: _, right } => get_end_location(right),
-        expr::Expr::Binary {
-            left: _,
-            operator: _,
-            right,
-        } => get_end_location(right),
-        expr::Expr::Grouping { expression } => get_end_location(expression),
-    }
-}
-
-fn add_diagnostic(
-    reporter: &mut dyn reporter::Reporter,
-    expr: &expr::Expr,
-    message: String,
-) -> Result<lox_type::LoxType, RuntimeError> {
-    reporter.add_diagnostic(get_start_location(expr), get_end_location(expr), &message);
-    Err(RuntimeError { message })
-}
-
-fn evaluate_literal(
-    reporter: &mut dyn reporter::Reporter,
-    expr: &expr::Expr,
-    token: &token::Token,
-) -> Result<lox_type::LoxType, RuntimeError> {
-    match &token.literal {
-        token::Literal::Number(number) => Ok(lox_type::LoxType::Number(*number)),
-        token::Literal::String(string) => Ok(lox_type::LoxType::String(string.to_string())),
-        token::Literal::True => Ok(lox_type::LoxType::Boolean(true)),
-        token::Literal::False => Ok(lox_type::LoxType::Boolean(false)),
-        token::Literal::Nil => Ok(lox_type::LoxType::Nil),
-        _ => add_diagnostic(reporter, expr, "Unhandled literal".to_string()),
-    }
-}
-
-fn evalute_unary(
-    reporter: &mut dyn reporter::Reporter,
-    expression: &expr::Expr,
-    operator: &token::Token,
-    right: &expr::Expr,
-) -> Result<lox_type::LoxType, RuntimeError> {
-    let right = evalute(reporter, right)?;
-    match operator.token_type {
-        token::TokenType::Minus => {
-            let right = check_number_operand(reporter, expression, &right)?;
-            Ok(lox_type::LoxType::Number(-1.0 * right))
+    fn evaluate_stmt(&mut self, statement: &stmt::Stmt) -> Result<(), RuntimeError> {
+        match statement {
+            stmt::Stmt::Print { value } => {
+                let result = self.evaluate_expr(value)?;
+                self.reporter.add_message(&format!("[print] {}", result));
+                Ok(())
+            }
+            stmt::Stmt::Expression { expression } => match self.evaluate_expr(expression) {
+                Ok(r) => {
+                    self.reporter.add_message(&format!("[interpreter] {r}"));
+                    Ok(())
+                }
+                Err(err) => Err(err),
+            },
+            stmt::Stmt::Var { name, initialiser } => self.evaluate_stmt_var(name, initialiser),
+            stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
         }
-        token::TokenType::Bang => Ok(lox_type::LoxType::Boolean(!is_truthy(&right))),
-        _ => add_diagnostic(reporter, expression, "Unsupported operand".to_string()),
     }
-}
 
-fn evalute_binary(
-    reporter: &mut dyn reporter::Reporter,
-    expression: &expr::Expr,
-    left: &expr::Expr,
-    operator: &token::Token,
-    right: &expr::Expr,
-) -> Result<lox_type::LoxType, RuntimeError> {
-    let left = evalute(reporter, left)?;
-    let right = evalute(reporter, right)?;
+    fn evaluate_stmt_var(
+        &mut self,
+        name: &token::Token,
+        initialiser: &Option<expr::Expr>,
+    ) -> Result<(), RuntimeError> {
+        let initial_value = match initialiser {
+            Some(expression) => self.evaluate_expr(expression)?,
+            None => lox_type::LoxType::Nil,
+        };
+        self.environment.define(&name.lexeme, &initial_value);
+        Ok(())
+    }
 
-    if matches!(operator.token_type, token::TokenType::Plus) {
-        if matches!(right, lox_type::LoxType::Number(_))
-            && matches!(left, lox_type::LoxType::Number(_))
-        {
-            let right = check_number_operand(reporter, expression, &right)?;
-            let left = check_number_operand(reporter, expression, &left)?;
-            Ok(lox_type::LoxType::Number(left + right))
-        } else if matches!(right, lox_type::LoxType::String(_))
-            && matches!(left, lox_type::LoxType::String(_))
-        {
-            let right = check_string_operand(reporter, expression, &right)?;
-            let left = check_string_operand(reporter, expression, &left)?;
-            Ok(lox_type::LoxType::String(left.to_string() + right))
-        } else {
-            add_diagnostic(
-                reporter,
-                expression,
-                "Operands must be two numbers or two strings".to_string(),
-            )
+    fn evaluate_stmt_block(
+        &mut self,
+        statements: &LinkedList<stmt::Stmt>,
+    ) -> Result<(), RuntimeError> {
+        self.environment.new_frame();
+        for statement in statements {
+            if let Err(err) = self.evaluate_stmt(statement) {
+                self.environment.pop_frame();
+                return Err(err);
+            }
         }
-    } else if matches!(operator.token_type, token::TokenType::EqualEqual) {
-        Ok(lox_type::LoxType::Boolean(is_equal(&left, &right)))
-    } else if matches!(operator.token_type, token::TokenType::BangEqual) {
-        Ok(lox_type::LoxType::Boolean(!is_equal(&left, &right)))
-    } else {
-        let right = check_number_operand(reporter, expression, &right)?;
-        let left = check_number_operand(reporter, expression, &left)?;
+        self.environment.pop_frame();
+        Ok(())
+    }
+
+    fn evaluate_expr(
+        &mut self,
+        expression: &expr::Expr,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        match expression {
+            expr::Expr::Assign { name, value } => {
+                self.evaluate_expr_assign(expression, name, value)
+            }
+            expr::Expr::Binary {
+                left,
+                operator,
+                right,
+            } => self.evaluate_expr_binary(expression, left, operator, right),
+            expr::Expr::Grouping { expression } => self.evaluate_expr(expression),
+            expr::Expr::Literal { value } => self.evaluate_expr_literal(expression, value),
+            expr::Expr::Unary { operator, right } => {
+                self.evaluate_expr_unary(expression, operator, right)
+            }
+            expr::Expr::Variable { name } => self.evaluate_expr_var(expression, name),
+        }
+    }
+
+    fn add_diagnostic(
+        &self,
+        expr: &expr::Expr,
+        message: String,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        self.reporter
+            .add_diagnostic(get_start_location(expr), get_end_location(expr), &message);
+        Err(RuntimeError { message })
+    }
+
+    fn evaluate_expr_literal(
+        &self,
+        expr: &expr::Expr,
+        token: &token::Token,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        match &token.literal {
+            Some(token::Literal::Number(number)) => Ok(lox_type::LoxType::Number(*number)),
+            Some(token::Literal::String(string)) => {
+                Ok(lox_type::LoxType::String(string.to_string()))
+            }
+            Some(token::Literal::True) => Ok(lox_type::LoxType::Boolean(true)),
+            Some(token::Literal::False) => Ok(lox_type::LoxType::Boolean(false)),
+            Some(token::Literal::Nil) => Ok(lox_type::LoxType::Nil),
+            _ => self.add_diagnostic(expr, "Unhandled literal".to_string()),
+        }
+    }
+
+    fn evaluate_expr_assign(
+        &mut self,
+        expression: &expr::Expr,
+        name: &token::Token,
+        value: &expr::Expr,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        let value = self.evaluate_expr(value)?;
+        if let Err(message) = self.environment.assign(name, &value) {
+            self.add_diagnostic(expression, message.message)?;
+        }
+        Ok(value)
+    }
+
+    fn evaluate_expr_unary(
+        &mut self,
+        expression: &expr::Expr,
+        operator: &token::Token,
+        right: &expr::Expr,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        let right = self.evaluate_expr(right)?;
         match operator.token_type {
-            token::TokenType::Minus => Ok(lox_type::LoxType::Number(left - right)),
-            token::TokenType::Slash => Ok(lox_type::LoxType::Number(left / right)),
-            token::TokenType::Star => Ok(lox_type::LoxType::Number(left * right)),
-            token::TokenType::Greater => Ok(lox_type::LoxType::Boolean(left > right)),
-            token::TokenType::GreaterEqual => Ok(lox_type::LoxType::Boolean(left >= right)),
-            token::TokenType::Less => Ok(lox_type::LoxType::Boolean(left < right)),
-            token::TokenType::LessEqual => Ok(lox_type::LoxType::Boolean(left <= right)),
-            _ => add_diagnostic(reporter, expression, "Unsupported operator".to_string()),
+            token::TokenType::Minus => {
+                let right = self.check_number_operand(expression, &right)?;
+                Ok(lox_type::LoxType::Number(-1.0 * right))
+            }
+            token::TokenType::Bang => Ok(lox_type::LoxType::Boolean(!is_truthy(&right))),
+            _ => self.add_diagnostic(expression, "Unsupported operand".to_string()),
         }
+    }
+
+    fn evaluate_expr_binary(
+        &mut self,
+        expression: &expr::Expr,
+        left: &expr::Expr,
+        operator: &token::Token,
+        right: &expr::Expr,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        let left = self.evaluate_expr(left)?;
+        let right = self.evaluate_expr(right)?;
+
+        if matches!(operator.token_type, token::TokenType::Plus) {
+            if matches!(right, lox_type::LoxType::Number(_))
+                && matches!(left, lox_type::LoxType::Number(_))
+            {
+                let right = self.check_number_operand(expression, &right)?;
+                let left = self.check_number_operand(expression, &left)?;
+                Ok(lox_type::LoxType::Number(left + right))
+            } else if matches!(right, lox_type::LoxType::String(_))
+                && matches!(left, lox_type::LoxType::String(_))
+            {
+                let right = self.check_string_operand(expression, &right)?;
+                let left = self.check_string_operand(expression, &left)?;
+                Ok(lox_type::LoxType::String(left.to_string() + right))
+            } else {
+                self.add_diagnostic(
+                    expression,
+                    "Operands must be two numbers or two strings".to_string(),
+                )
+            }
+        } else if matches!(operator.token_type, token::TokenType::EqualEqual) {
+            Ok(lox_type::LoxType::Boolean(is_equal(&left, &right)))
+        } else if matches!(operator.token_type, token::TokenType::BangEqual) {
+            Ok(lox_type::LoxType::Boolean(!is_equal(&left, &right)))
+        } else {
+            let right = self.check_number_operand(expression, &right)?;
+            let left = self.check_number_operand(expression, &left)?;
+            match operator.token_type {
+                token::TokenType::Minus => Ok(lox_type::LoxType::Number(left - right)),
+                token::TokenType::Slash => Ok(lox_type::LoxType::Number(left / right)),
+                token::TokenType::Star => Ok(lox_type::LoxType::Number(left * right)),
+                token::TokenType::Greater => Ok(lox_type::LoxType::Boolean(left > right)),
+                token::TokenType::GreaterEqual => Ok(lox_type::LoxType::Boolean(left >= right)),
+                token::TokenType::Less => Ok(lox_type::LoxType::Boolean(left < right)),
+                token::TokenType::LessEqual => Ok(lox_type::LoxType::Boolean(left <= right)),
+                _ => self.add_diagnostic(expression, "Unsupported operator".to_string()),
+            }
+        }
+    }
+
+    fn evaluate_expr_var(
+        &self,
+        expression: &expr::Expr,
+        name: &token::Token,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        match self.environment.get(name) {
+            Ok(value) => Ok(value),
+            Err(err) => self.add_diagnostic(expression, err.message),
+        }
+    }
+
+    fn check_number_operand(
+        &self,
+        expression: &expr::Expr,
+        lox_type: &lox_type::LoxType,
+    ) -> Result<f64, RuntimeError> {
+        match lox_type {
+            lox_type::LoxType::Number(value) => Ok(*value),
+            _ => Err(self
+                .add_diagnostic(expression, "Operand should be a number".to_string())
+                .unwrap_err()),
+        }
+    }
+
+    fn check_string_operand<'a>(
+        &self,
+        expression: &'a expr::Expr,
+        lox_type: &'a lox_type::LoxType,
+    ) -> Result<&'a str, RuntimeError> {
+        match &lox_type {
+            lox_type::LoxType::String(string) => Ok(string),
+            _ => Err(self
+                .add_diagnostic(expression, "Operand should be a string".to_string())
+                .unwrap_err()),
+        }
+    }
+}
+
+fn is_truthy(lox_type: &lox_type::LoxType) -> bool {
+    match lox_type {
+        lox_type::LoxType::Nil => false,
+        lox_type::LoxType::Boolean(bool) => *bool,
+        _ => true,
     }
 }
 
@@ -185,55 +275,43 @@ fn is_equal(left: &lox_type::LoxType, right: &lox_type::LoxType) -> bool {
     false
 }
 
-fn is_truthy(lox_type: &lox_type::LoxType) -> bool {
-    match lox_type {
-        lox_type::LoxType::Nil => false,
-        lox_type::LoxType::Boolean(bool) => *bool,
-        _ => true,
+fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
+    match expr {
+        expr::Expr::Assign { name, value: _ } => &name.start,
+        expr::Expr::Binary {
+            left,
+            operator: _,
+            right: _,
+        } => get_start_location(left),
+        expr::Expr::Grouping { expression } => get_start_location(expression),
+        expr::Expr::Literal { value } => &value.start,
+        expr::Expr::Unary { operator, right: _ } => &operator.start,
+        expr::Expr::Variable { name } => &name.start,
     }
 }
 
-fn check_number_operand(
-    reporter: &mut dyn reporter::Reporter,
-    expression: &expr::Expr,
-    lox_type: &lox_type::LoxType,
-) -> Result<f64, RuntimeError> {
-    match lox_type {
-        lox_type::LoxType::Number(value) => Ok(*value),
-        _ => Err(add_diagnostic(
-            reporter,
-            expression,
-            "Operand should be a number".to_string(),
-        )
-        .unwrap_err()),
-    }
-}
-
-fn check_string_operand<'a>(
-    reporter: &mut dyn reporter::Reporter,
-    expression: &'a expr::Expr,
-    lox_type: &'a lox_type::LoxType,
-) -> Result<&'a str, RuntimeError> {
-    match &lox_type {
-        lox_type::LoxType::String(string) => Ok(string),
-        _ => Err(add_diagnostic(
-            reporter,
-            expression,
-            "Operand should be a string".to_string(),
-        )
-        .unwrap_err()),
+fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
+    match expr {
+        expr::Expr::Assign { name: _, value } => get_end_location(value),
+        expr::Expr::Binary {
+            left: _,
+            operator: _,
+            right,
+        } => get_end_location(right),
+        expr::Expr::Grouping { expression } => get_end_location(expression),
+        expr::Expr::Literal { value } => &value.end,
+        expr::Expr::Unary { operator: _, right } => get_end_location(right),
+        expr::Expr::Variable { name } => &name.end,
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::ast_printer;
-    use crate::expr;
-    use crate::location::FileLocation;
-    use crate::lox_type;
-    use crate::reporter::test::TestReporter;
-    use crate::token;
+    use crate::{
+        ast_printer, expr, location::FileLocation, lox_type, parser, reporter::test::TestReporter,
+        runtime_error::RuntimeError, scanner, token,
+    };
 
     #[test]
     fn test_truthy_values() {
@@ -263,7 +341,7 @@ mod test {
 
     #[test]
     fn test_check_string_operand() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
             value: token::Token::new(
@@ -271,7 +349,7 @@ mod test {
                 "\"\"",
                 blank_location,
                 blank_location,
-                token::Literal::String("".to_string()),
+                Some(token::Literal::String("".to_string())),
             ),
         };
 
@@ -300,9 +378,12 @@ mod test {
             ),
         ];
 
+        let interpreter = Interpreter::build(&reporter);
+
         for (value, expected_result) in &tests {
+            reporter.reset();
             assert_eq!(
-                check_string_operand(&mut reporter, &expression, value),
+                interpreter.check_string_operand(&expression, value),
                 *expected_result,
                 "unexpected result for: {:?}",
                 value
@@ -312,7 +393,7 @@ mod test {
 
     #[test]
     fn test_check_number_operand() {
-        let mut reporter = TestReporter::build();
+        let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
             value: token::Token::new(
@@ -320,7 +401,7 @@ mod test {
                 "\"\"",
                 blank_location,
                 blank_location,
-                token::Literal::String("".to_string()),
+                Some(token::Literal::String("".to_string())),
             ),
         };
 
@@ -349,9 +430,11 @@ mod test {
             ),
         ];
 
+        let interpreter = Interpreter::build(&reporter);
         for (value, expected_result) in &tests {
+            reporter.reset();
             assert_eq!(
-                check_number_operand(&mut reporter, &expression, value),
+                interpreter.check_number_operand(&expression, value),
                 *expected_result,
                 "unexpected result for: {:?}",
                 value
@@ -407,6 +490,7 @@ mod test {
                 lox_type::LoxType::Boolean(true),
                 false,
             ),
+            (lox_type::LoxType::Nil, lox_type::LoxType::Nil, true),
         ];
 
         for (left, right, expected_result) in &tests {
@@ -420,371 +504,197 @@ mod test {
         }
     }
 
+    fn test_expressions(tests: Vec<(&str, Result<lox_type::LoxType, RuntimeError>)>) {
+        let reporter = TestReporter::build();
+        for (src, expected_result) in tests {
+            let mut interpreter = Interpreter::build(&reporter);
+            reporter.reset();
+            let tokens = scanner::scan_tokens(&reporter, src);
+            if let Some(statement) = parser::parse(&reporter, tokens).front() {
+                if let stmt::Stmt::Expression { expression } = statement {
+                    assert_eq!(
+                        interpreter.evaluate_expr(expression),
+                        expected_result,
+                        "unexpected result: {} != {:?}",
+                        ast_printer::print_expr(expression),
+                        expected_result
+                    );
+                } else {
+                    panic!("Invalid statement type for '{}'", src);
+                };
+            } else {
+                reporter.print_contents();
+                panic!("Statement not found for '{}'", src);
+            }
+        }
+    }
+
     #[test]
     fn test_plus() {
-        let mut reporter = TestReporter::build();
-        let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
-                expr::Expr::build_binary(
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                    token::Token::new(
-                        token::TokenType::Plus,
-                        "+",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                ),
+                "10 + 10 ; ",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Number(20f64)),
             ),
             (
-                expr::Expr::build_binary(
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::String,
-                            "\"hello,\"",
-                            blank_location,
-                            blank_location,
-                            token::Literal::String("hello,".to_string()),
-                        ),
-                    },
-                    token::Token::new(
-                        token::TokenType::Plus,
-                        "+",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::String,
-                            "\" world\"",
-                            blank_location,
-                            blank_location,
-                            token::Literal::String(" world".to_string()),
-                        ),
-                    },
-                ),
+                "\"hello,\" + \" world\";",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::String(
                     "hello, world".to_string(),
                 )),
             ),
             (
-                expr::Expr::build_binary(
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "\"10,\"",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                    token::Token::new(
-                        token::TokenType::Plus,
-                        "+",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::String,
-                            "\" world\"",
-                            blank_location,
-                            blank_location,
-                            token::Literal::String(" world".to_string()),
-                        ),
-                    },
-                ),
+                "10 + \", world\";",
                 Err::<lox_type::LoxType, RuntimeError>(RuntimeError {
                     message: "Operands must be two numbers or two strings".to_string(),
                 }),
             ),
         ];
 
-        for (expr, expected_result) in &tests {
-            assert_eq!(
-                evalute(&mut reporter, expr),
-                *expected_result,
-                "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
-                expected_result
-            );
-        }
+        test_expressions(tests);
     }
 
     #[test]
     fn test_equality() {
-        let mut reporter = TestReporter::build();
-        let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
-                expr::Expr::build_binary(
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                    token::Token::new(
-                        token::TokenType::EqualEqual,
-                        "==",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                ),
+                "10 == 10;",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Boolean(true)),
             ),
             (
-                expr::Expr::build_binary(
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                    token::Token::new(
-                        token::TokenType::BangEqual,
-                        "!=",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                ),
+                "10 != 10;",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Boolean(false)),
             ),
         ];
 
-        for (expr, expected_result) in &tests {
-            assert_eq!(
-                evalute(&mut reporter, expr),
-                *expected_result,
-                "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
-                expected_result
-            );
-        }
+        test_expressions(tests);
     }
 
     #[test]
     fn test_binary() {
-        let mut reporter = TestReporter::build();
-        let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
-                expr::Expr::build_binary(
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                    token::Token::new(
-                        token::TokenType::Minus,
-                        "-",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "5",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(5f64),
-                        ),
-                    },
-                ),
+                "10 - 5;",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Number(5f64)),
             ),
             (
-                expr::Expr::build_binary(
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                    token::Token::new(
-                        token::TokenType::Star,
-                        "*",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "10",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(10f64),
-                        ),
-                    },
-                ),
+                "10 * 10;",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Number(100f64)),
             ),
         ];
 
-        for (expr, expected_result) in &tests {
-            assert_eq!(
-                evalute(&mut reporter, expr),
-                *expected_result,
-                "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
-                expected_result
-            );
-        }
+        test_expressions(tests);
     }
 
     #[test]
     fn test_unary() {
-        let mut reporter = TestReporter::build();
-        let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
-                expr::Expr::build_unary(
-                    token::Token::new(
-                        token::TokenType::Minus,
-                        "-",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::Number,
-                            "5",
-                            blank_location,
-                            blank_location,
-                            token::Literal::Number(5f64),
-                        ),
-                    },
-                ),
+                "-5;",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Number(-5f64)),
             ),
             (
-                expr::Expr::build_unary(
-                    token::Token::new(
-                        token::TokenType::Bang,
-                        "!",
-                        blank_location,
-                        blank_location,
-                        token::Literal::None,
-                    ),
-                    expr::Expr::Literal {
-                        value: token::Token::new(
-                            token::TokenType::True,
-                            "true",
-                            blank_location,
-                            blank_location,
-                            token::Literal::True,
-                        ),
-                    },
-                ),
+                "!true;",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Boolean(false)),
             ),
         ];
 
-        for (expr, expected_result) in &tests {
-            assert_eq!(
-                evalute(&mut reporter, expr),
-                *expected_result,
-                "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
-                expected_result
-            );
-        }
+        test_expressions(tests);
     }
 
     #[test]
     fn test_literal() {
-        let mut reporter = TestReporter::build();
-        let blank_location = FileLocation::new(0, 0);
         let tests = vec![
             (
-                expr::Expr::build_literal(token::Token::new(
-                    token::TokenType::String,
-                    "\"hello, world\"",
-                    blank_location,
-                    blank_location,
-                    token::Literal::String("hello, world".to_string()),
-                )),
+                "\"hello, world\";",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::String(
                     "hello, world".to_string(),
                 )),
             ),
             (
-                expr::Expr::build_literal(token::Token::new(
-                    token::TokenType::True,
-                    "true",
-                    blank_location,
-                    blank_location,
-                    token::Literal::True,
-                )),
+                "true;",
                 Ok::<lox_type::LoxType, RuntimeError>(lox_type::LoxType::Boolean(true)),
             ),
         ];
 
-        for (expr, expected_result) in &tests {
-            assert_eq!(
-                evalute(&mut reporter, expr),
-                *expected_result,
-                "unexpected result: {} != {:?}",
-                ast_printer::print(expr),
-                expected_result
-            );
+        test_expressions(tests);
+    }
+
+    #[test]
+    fn test_stmt_var() {
+        let tests = vec![
+            (
+                "var a = \"value\";",
+                "a",
+                lox_type::LoxType::String("value".to_string()),
+            ),
+            ("var b;", "b", lox_type::LoxType::Nil),
+        ];
+
+        let blank_location = location::FileLocation::new(0, 0);
+        let reporter = TestReporter::build();
+        for (src, key, expected_value) in tests {
+            let mut interpreter = Interpreter::build(&reporter);
+            reporter.reset();
+            let tokens = scanner::scan_tokens(&reporter, src);
+            if let Some(statement) = parser::parse(&reporter, tokens).front() {
+                if let stmt::Stmt::Var {
+                    name: _,
+                    initialiser: _,
+                } = statement
+                {
+                    if let Err(msg) = interpreter.evaluate_stmt(statement) {
+                        panic!("Unexpected error for '{}': {}", src, msg.message);
+                    }
+                    let key = token::Token::new(
+                        token::TokenType::Identifier,
+                        key,
+                        blank_location,
+                        blank_location,
+                        None,
+                    );
+                    match interpreter.environment.get(&key) {
+                        Ok(value) => {
+                            assert_eq!(value, expected_value, "Unexpected value for '{}'", src)
+                        }
+                        Err(RuntimeError { message }) => {
+                            panic!("Unexpected error for '{}': {}", src, message)
+                        }
+                    }
+                } else {
+                    panic!("Invalid statement type for '{}'", src);
+                };
+            } else {
+                reporter.print_contents();
+                panic!("Statement not found for '{}'", src);
+            }
+        }
+    }
+
+    #[test]
+    fn test_stmt() {
+        let tests = vec![
+            ("print \"value\";", "[print] \"value\""),
+            ("10 + 10;", "[interpreter] 20"),
+            ("{true == false;} ", "[interpreter] false"),
+        ];
+
+        let reporter = TestReporter::build();
+        for (src, expected_message) in tests {
+            let mut interpreter = Interpreter::build(&reporter);
+            reporter.reset();
+            let tokens = scanner::scan_tokens(&reporter, src);
+            if let Some(statement) = parser::parse(&reporter, tokens).front() {
+                if let Err(msg) = interpreter.evaluate_stmt(statement) {
+                    panic!("Unexpected error for '{}': {}", src, msg.message);
+                }
+                if !reporter.has_message(expected_message) {
+                    reporter.print_contents();
+                    panic!("Missing expected message for '{}'", src);
+                }
+            } else {
+                reporter.print_contents();
+                panic!("Statement not found for '{}'", src);
+            }
         }
     }
 }

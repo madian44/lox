@@ -2,7 +2,7 @@
   "name": "lox-vsce",
   "displayName": "lox-vsce",
   "description": "",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "engines": {
     "vscode": "^1.84.0"
   },
@@ -16,6 +16,16 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Lox",
+      "properties": {
+        "lox.showAllMessages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show all messages"
+        }
+      }
+    },
     "languages": [
       {
         "id": "lox",
@@ -70,7 +80,7 @@
       },
       {
         "command": "lox-vsce.interpretSelectedLox",
-        "title": "Lox: Interpret Selected Expression"
+        "title": "Lox: Interpret Selected Text"
       }
     ]
   },
