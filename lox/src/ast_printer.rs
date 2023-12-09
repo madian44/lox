@@ -63,6 +63,11 @@ pub fn print_expr(expr: &expr::Expr) -> String {
         } => print_expr_binary(left, operator, right),
         expr::Expr::Grouping { expression } => print_expr_grouping(expression),
         expr::Expr::Literal { value } => print_expr_literal(value),
+        expr::Expr::Logical {
+            left,
+            operator,
+            right,
+        } => print_expr_logical(left, operator, right),
         expr::Expr::Unary { operator, right } => print_expr_unary(operator, right),
         expr::Expr::Variable { name } => print_expr_variable(name),
         expr::Expr::Assign { name, value } => print_expr_assign(name, value),
@@ -91,6 +96,15 @@ fn print_expr_literal(value: &token::Token) -> String {
         None => "None".to_string(),
     };
     parenthesize(&value, vec![])
+}
+
+fn print_expr_logical(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
+    format!(
+        "{} {} {}",
+        print_expr(left),
+        operator.lexeme,
+        print_expr(right)
+    )
 }
 
 fn print_expr_unary(operator: &token::Token, right: &expr::Expr) -> String {

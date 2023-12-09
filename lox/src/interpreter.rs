@@ -107,6 +107,11 @@ impl<'k> Interpreter<'k> {
             } => self.evaluate_expr_binary(expression, left, operator, right),
             expr::Expr::Grouping { expression } => self.evaluate_expr(expression),
             expr::Expr::Literal { value } => self.evaluate_expr_literal(expression, value),
+            expr::Expr::Logical {
+                left,
+                operator,
+                right,
+            } => self.evaluate_expr_logical(left, operator, right),
             expr::Expr::Unary { operator, right } => {
                 self.evaluate_expr_unary(expression, operator, right)
             }
@@ -231,6 +236,24 @@ impl<'k> Interpreter<'k> {
         }
     }
 
+    fn evaluate_expr_logical(
+        &mut self,
+        left: &expr::Expr,
+        operator: &token::Token,
+        right: &expr::Expr,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        let left = self.evaluate_expr(left)?;
+        if operator.token_type == token::TokenType::Or {
+            if is_truthy(&left) {
+                return Ok(left);
+            }
+        } else if !is_truthy(&left) {
+            return Ok(left);
+        }
+
+        self.evaluate_expr(right)
+    }
+
     fn check_number_operand(
         &self,
         expression: &expr::Expr,
@@ -304,6 +327,11 @@ fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
         } => get_start_location(left),
         expr::Expr::Grouping { expression } => get_start_location(expression),
         expr::Expr::Literal { value } => &value.start,
+        expr::Expr::Logical {
+            left,
+            operator: _,
+            right: _,
+        } => get_start_location(left),
         expr::Expr::Unary { operator, right: _ } => &operator.start,
         expr::Expr::Variable { name } => &name.start,
     }
@@ -319,6 +347,11 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
         } => get_end_location(right),
         expr::Expr::Grouping { expression } => get_end_location(expression),
         expr::Expr::Literal { value } => &value.end,
+        expr::Expr::Logical {
+            left: _,
+            operator: _,
+            right,
+        } => get_end_location(right),
         expr::Expr::Unary { operator: _, right } => get_end_location(right),
         expr::Expr::Variable { name } => &name.end,
     }
@@ -703,6 +736,8 @@ mod test {
                 "if (false) print \"then branch\"; else print \"else branch\";",
                 "[print] \"else branch\"",
             ),
+            ("print \"hi\" or 2 ; ", "[print] \"hi\""),
+            ("print nil or \"yes\" ; ", "[print] \"yes\""),
         ];
 
         let reporter = TestReporter::build();

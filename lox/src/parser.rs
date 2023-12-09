@@ -23,14 +23,6 @@ struct Data {
     term_tokens: Vec<token::TokenType>,
     unary_tokens: Vec<token::TokenType>,
     primary_tokens: Vec<token::TokenType>,
-    start_of_group_tokens: Vec<token::TokenType>,
-    print_tokens: Vec<token::TokenType>,
-    declaration_tokens: Vec<token::TokenType>,
-    assignment_tokens: Vec<token::TokenType>,
-    identifier_tokens: Vec<token::TokenType>,
-    block_tokens: Vec<token::TokenType>,
-    if_tokens: Vec<token::TokenType>,
-    else_tokens: Vec<token::TokenType>,
 }
 
 impl Data {
@@ -52,14 +44,6 @@ impl Data {
             token::TokenType::Number,
             token::TokenType::String,
         ];
-        let start_of_group_tokens = vec![token::TokenType::LeftParen];
-        let print_tokens = vec![token::TokenType::Print];
-        let declaration_tokens = vec![token::TokenType::Var];
-        let assignment_tokens = vec![token::TokenType::Equal];
-        let identifier_tokens = vec![token::TokenType::Identifier];
-        let block_tokens = vec![token::TokenType::LeftBrace];
-        let if_tokens = vec![token::TokenType::If];
-        let else_tokens = vec![token::TokenType::Else];
         Data {
             equality_tokens,
             comparison_tokens,
@@ -67,14 +51,6 @@ impl Data {
             term_tokens,
             unary_tokens,
             primary_tokens,
-            start_of_group_tokens,
-            print_tokens,
-            declaration_tokens,
-            assignment_tokens,
-            identifier_tokens,
-            block_tokens,
-            if_tokens,
-            else_tokens,
         }
     }
 }
@@ -89,7 +65,7 @@ struct Parser<'k> {
 /// Parser stores the current token.
 /// The current token can be taken with `take_current_token`
 /// `advance` will take the next available token and store it in `current_token`
-/// `consume_matching_token` if the next token matches a given token `advance` and return `true` otherwise it returns `false` and does not `advance`.
+/// `consume_any_matching_token` if the next token matches a given token `advance` and return `true` otherwise it returns `false` and does not `advance`.
 /// `consume_token` will `advance` if the next token matches the requested token type and fail otherwise
 /// `check_next_token` checks if the next token is of the requested type
 /// `declaration` will try to synchronize to a semi-colon after a failure is detected
@@ -127,7 +103,7 @@ impl<'k> Parser<'k> {
     }
 
     fn declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        let result = if self.consume_matching_token(&data.declaration_tokens) {
+        let result = if self.consume_matching_token(&token::TokenType::Var) {
             self.variable_declaration(data)
         } else {
             self.statement(data)
@@ -142,7 +118,7 @@ impl<'k> Parser<'k> {
         self.consume_token(&token::TokenType::Identifier, "Expect a variable name")?;
         let name = self.take_current_token()?;
 
-        let initialiser = if self.consume_matching_token(&data.assignment_tokens) {
+        let initialiser = if self.consume_matching_token(&token::TokenType::Equal) {
             Some(self.expression(data)?)
         } else {
             None
@@ -152,11 +128,11 @@ impl<'k> Parser<'k> {
     }
 
     fn statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        if self.consume_matching_token(&data.if_tokens) {
+        if self.consume_matching_token(&token::TokenType::If) {
             self.if_statement(data)
-        } else if self.consume_matching_token(&data.print_tokens) {
+        } else if self.consume_matching_token(&token::TokenType::Print) {
             self.print_statement(data)
-        } else if self.consume_matching_token(&data.block_tokens) {
+        } else if self.consume_matching_token(&token::TokenType::LeftBrace) {
             self.block_statement(data)
         } else {
             self.expression_statement(data)
@@ -174,7 +150,7 @@ impl<'k> Parser<'k> {
         let then_branch = self.statement(data)?;
 
         let mut else_branch = None;
-        if self.consume_matching_token(&data.else_tokens) {
+        if self.consume_matching_token(&token::TokenType::Else) {
             else_branch = Some(self.statement(data)?);
         }
         Ok(stmt::Stmt::If {
@@ -209,14 +185,15 @@ impl<'k> Parser<'k> {
     }
 
     fn expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        self.assignment(data)
+        self.assignment_expression(data)
     }
 
-    fn assignment(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let expr = self.equality(data)?;
+    fn assignment_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let expr = self.or_expression(data)?;
+        //        let expr = self.equality_expression(data)?;
 
-        if self.consume_matching_token(&data.assignment_tokens) {
-            let value = self.assignment(data)?;
+        if self.consume_matching_token(&token::TokenType::Equal) {
+            let value = self.assignment_expression(data)?;
 
             if let expr::Expr::Variable { name } = expr {
                 return Ok(expr::Expr::build_assign(name, value));
@@ -226,73 +203,97 @@ impl<'k> Parser<'k> {
         Ok(expr)
     }
 
-    fn equality(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.comparison(data)?;
+    fn or_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.and_expression(data)?;
 
-        while self.consume_matching_token(&data.equality_tokens) {
+        while self.consume_matching_token(&token::TokenType::Or) {
             let operator = self.take_current_token()?;
-            let right = self.comparison(data)?;
+            let right = self.and_expression(data)?;
+            expr = expr::Expr::build_logical(expr, operator, right);
+        }
+
+        Ok(expr)
+    }
+
+    fn and_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.equality_expression(data)?;
+
+        while self.consume_matching_token(&token::TokenType::And) {
+            let operator = self.take_current_token()?;
+            let right = self.equality_expression(data)?;
+            expr = expr::Expr::build_logical(expr, operator, right);
+        }
+
+        Ok(expr)
+    }
+
+    fn equality_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.comparison_expression(data)?;
+
+        while self.consume_any_matching_token(&data.equality_tokens) {
+            let operator = self.take_current_token()?;
+            let right = self.comparison_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn comparison(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.term(data)?;
+    fn comparison_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.term_expression(data)?;
 
-        while self.consume_matching_token(&data.comparison_tokens) {
+        while self.consume_any_matching_token(&data.comparison_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.term(data)?;
+            let right = self.term_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn term(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.factor(data)?;
+    fn term_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.factor_expression(data)?;
 
-        while self.consume_matching_token(&data.term_tokens) {
+        while self.consume_any_matching_token(&data.term_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.factor(data)?;
+            let right = self.factor_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn factor(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.unary(data)?;
+    fn factor_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.unary_expression(data)?;
 
-        while self.consume_matching_token(&data.factor_tokens) {
+        while self.consume_any_matching_token(&data.factor_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.unary(data)?;
+            let right = self.unary_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn unary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        if self.consume_matching_token(&data.unary_tokens) {
+    fn unary_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        if self.consume_any_matching_token(&data.unary_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.unary(data)?;
+            let right = self.unary_expression(data)?;
             return Ok(expr::Expr::build_unary(operator, right));
         }
-        self.primary(data)
+        self.primary_expression(data)
     }
 
-    fn primary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        if self.consume_matching_token(&data.primary_tokens) {
+    fn primary_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        if self.consume_any_matching_token(&data.primary_tokens) {
             return Ok(expr::Expr::build_literal(self.take_current_token()?));
         }
 
-        if self.consume_matching_token(&data.identifier_tokens) {
+        if self.consume_matching_token(&token::TokenType::Identifier) {
             return Ok(expr::Expr::build_variable(self.take_current_token()?));
         }
 
-        if self.consume_matching_token(&data.start_of_group_tokens) {
+        if self.consume_matching_token(&token::TokenType::LeftParen) {
             let expr = self.expression(data)?;
             self.consume_token(&token::TokenType::RightParen, "expect ')' after expression")?;
             return Ok(expr::Expr::build_grouping(expr));
@@ -320,8 +321,17 @@ impl<'k> Parser<'k> {
         Ok(())
     }
 
-    fn consume_matching_token(&mut self, token_types: &[token::TokenType]) -> bool {
+    fn consume_any_matching_token(&mut self, token_types: &[token::TokenType]) -> bool {
         if token_types.iter().any(|t| self.check_next_token(t)) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn consume_matching_token(&mut self, token_type: &token::TokenType) -> bool {
+        if self.check_next_token(token_type) {
             self.advance();
             true
         } else {
