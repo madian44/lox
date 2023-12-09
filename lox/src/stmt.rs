@@ -15,4 +15,9 @@ pub enum Stmt {
     Block {
         statements: LinkedList<Stmt>,
     },
+    If {
+        condition: expr::Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Box<Option<Stmt>>,
+    },
 }

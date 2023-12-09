@@ -42,6 +42,11 @@ impl<'k> Interpreter<'k> {
             },
             stmt::Stmt::Var { name, initialiser } => self.evaluate_stmt_var(name, initialiser),
             stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
+            stmt::Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => self.evaluate_stmt_if(condition, then_branch, else_branch),
         }
     }
 
@@ -70,6 +75,20 @@ impl<'k> Interpreter<'k> {
             }
         }
         self.environment.pop_frame();
+        Ok(())
+    }
+
+    fn evaluate_stmt_if(
+        &mut self,
+        condition: &expr::Expr,
+        then_branch: &stmt::Stmt,
+        else_branch: &Option<stmt::Stmt>,
+    ) -> Result<(), RuntimeError> {
+        if is_truthy(&self.evaluate_expr(condition)?) {
+            self.evaluate_stmt(then_branch)?;
+        } else if let Some(else_branch) = else_branch {
+            self.evaluate_stmt(else_branch)?;
+        }
         Ok(())
     }
 
@@ -676,6 +695,14 @@ mod test {
             ("print \"value\";", "[print] \"value\""),
             ("10 + 10;", "[interpreter] 20"),
             ("{true == false;} ", "[interpreter] false"),
+            (
+                "if (true) print \"then branch\"; ",
+                "[print] \"then branch\"",
+            ),
+            (
+                "if (false) print \"then branch\"; else print \"else branch\";",
+                "[print] \"else branch\"",
+            ),
         ];
 
         let reporter = TestReporter::build();
@@ -689,7 +716,10 @@ mod test {
                 }
                 if !reporter.has_message(expected_message) {
                     reporter.print_contents();
-                    panic!("Missing expected message for '{}'", src);
+                    panic!(
+                        "Missing expected message for '{}' expected '{}'",
+                        src, expected_message
+                    );
                 }
             } else {
                 reporter.print_contents();

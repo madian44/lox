@@ -7,6 +7,11 @@ pub fn print_stmt(stmt: &stmt::Stmt) -> String {
         stmt::Stmt::Print { value } => format!("PRINT {} ;", print_expr(value)),
         stmt::Stmt::Var { name, initialiser } => print_stmt_variable(name, initialiser),
         stmt::Stmt::Block { statements } => print_stmt_block(statements),
+        stmt::Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => print_stmt_if(condition, then_branch, else_branch),
     }
 }
 
@@ -27,6 +32,25 @@ fn print_stmt_block(statements: &LinkedList<stmt::Stmt>) -> String {
     }
 
     result.push('}');
+    result
+}
+
+fn print_stmt_if(
+    condition: &expr::Expr,
+    then_statement: &stmt::Stmt,
+    else_branch: &Option<stmt::Stmt>,
+) -> String {
+    let mut result = String::from("IF ");
+
+    result.push_str(&format!(
+        "({}) THEN {}",
+        print_expr(condition),
+        print_stmt(then_statement)
+    ));
+    if let Some(else_branch) = else_branch {
+        result.push_str(&format!(" ELSE {}", print_stmt(else_branch)))
+    }
+
     result
 }
 

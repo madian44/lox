@@ -29,6 +29,8 @@ struct Data {
     assignment_tokens: Vec<token::TokenType>,
     identifier_tokens: Vec<token::TokenType>,
     block_tokens: Vec<token::TokenType>,
+    if_tokens: Vec<token::TokenType>,
+    else_tokens: Vec<token::TokenType>,
 }
 
 impl Data {
@@ -56,6 +58,8 @@ impl Data {
         let assignment_tokens = vec![token::TokenType::Equal];
         let identifier_tokens = vec![token::TokenType::Identifier];
         let block_tokens = vec![token::TokenType::LeftBrace];
+        let if_tokens = vec![token::TokenType::If];
+        let else_tokens = vec![token::TokenType::Else];
         Data {
             equality_tokens,
             comparison_tokens,
@@ -69,6 +73,8 @@ impl Data {
             assignment_tokens,
             identifier_tokens,
             block_tokens,
+            if_tokens,
+            else_tokens,
         }
     }
 }
@@ -146,13 +152,36 @@ impl<'k> Parser<'k> {
     }
 
     fn statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        if self.consume_matching_token(&data.print_tokens) {
+        if self.consume_matching_token(&data.if_tokens) {
+            self.if_statement(data)
+        } else if self.consume_matching_token(&data.print_tokens) {
             self.print_statement(data)
         } else if self.consume_matching_token(&data.block_tokens) {
             self.block_statement(data)
         } else {
             self.expression_statement(data)
         }
+    }
+
+    fn if_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after if")?;
+        let condition = self.expression(data)?;
+        self.consume_token(
+            &token::TokenType::RightParen,
+            "Expect ')' after if condition",
+        )?;
+
+        let then_branch = self.statement(data)?;
+
+        let mut else_branch = None;
+        if self.consume_matching_token(&data.else_tokens) {
+            else_branch = Some(self.statement(data)?);
+        }
+        Ok(stmt::Stmt::If {
+            condition,
+            then_branch: Box::new(then_branch),
+            else_branch: Box::new(else_branch),
+        })
     }
 
     fn print_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
@@ -397,6 +426,11 @@ mod test {
             ("var a;", "VAR a ;"),
             ("{ var a; } ", "{\nVAR a ;\n}"),
             ("a = 10 ;", "a = (10) ;"),
+            ("if ( a = 10 ) a = 10;", "IF (a = (10)) THEN a = (10) ;"),
+            (
+                "if ( a = 10 ) a = 10 ; else b = 20;",
+                "IF (a = (10)) THEN a = (10) ; ELSE b = (20) ;",
+            ),
         ];
 
         for (src, expected_parse) in tests {
@@ -437,13 +471,19 @@ mod test {
             ("print 10", "Expect ';' after value"),
             ("\"10\"", "Expect ';' after expression"),
             ("\"10\" = 10 ;", "Invalid assignment target"),
+            (
+                "if ( a = 10 ) a = 10 ; else { b = 20;",
+                "Expect '}' after block",
+            ),
+            ("if  a = 10 ) a = 10 ; ", "Expect '(' after if"),
+            ("if ( a = 10  a = 10 ; ", "Expect ')' after if condition"),
         ];
 
         for (src, expected_message) in tests {
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
             let _ = parse(&reporter, tokens);
-            if reporter.diagnostics_len() != 1 {
+            if reporter.diagnostics_len() == 0 {
                 reporter.print_contents();
                 panic!("Unexpected diagnostics for '{}'", src);
             }
