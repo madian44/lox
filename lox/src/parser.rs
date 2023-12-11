@@ -1,4 +1,4 @@
-use crate::{expr, location, reporter, stmt, token};
+use crate::{expr, location, reporter, stmt, token, FileLocation};
 use std::collections::linked_list::IntoIter;
 use std::collections::LinkedList;
 use std::iter::Peekable;
@@ -128,7 +128,9 @@ impl<'k> Parser<'k> {
     }
 
     fn statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        if self.consume_matching_token(&token::TokenType::If) {
+        if self.consume_matching_token(&token::TokenType::For) {
+            self.for_statement(data)
+        } else if self.consume_matching_token(&token::TokenType::If) {
             self.if_statement(data)
         } else if self.consume_matching_token(&token::TokenType::Print) {
             self.print_statement(data)
@@ -142,11 +144,11 @@ impl<'k> Parser<'k> {
     }
 
     fn if_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after if")?;
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after 'if'")?;
         let condition = self.expression(data)?;
         self.consume_token(
             &token::TokenType::RightParen,
-            "Expect ')' after if condition",
+            "Expect ')' after 'if' condition",
         )?;
 
         let then_branch = self.statement(data)?;
@@ -169,17 +171,89 @@ impl<'k> Parser<'k> {
     }
 
     fn while_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after while")?;
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after 'while'")?;
         let condition = self.expression(data)?;
         self.consume_token(
             &token::TokenType::RightParen,
-            "Expect ')' after while condition",
+            "Expect ')' after 'while' condition",
         )?;
         let body = self.statement(data)?;
         Ok(stmt::Stmt::While {
             condition,
             body: Box::new(body),
         })
+    }
+
+    fn for_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after 'for'")?;
+
+        let initialiser = if self.consume_matching_token(&token::TokenType::Semicolon) {
+            None
+        } else if self.consume_matching_token(&token::TokenType::Var) {
+            Some(self.variable_declaration(data)?)
+        } else {
+            Some(self.expression_statement(data)?)
+        };
+
+        let condition = if !self.check_next_token(&token::TokenType::Semicolon) {
+            self.expression(data)?
+        } else {
+            expr::Expr::build_literal(token::Token::new(
+                token::TokenType::True,
+                "true",
+                self.get_nearby_location()
+                    .unwrap_or(FileLocation::new(0, 0)),
+                self.get_nearby_location()
+                    .unwrap_or(FileLocation::new(0, 0)),
+                Some(token::Literal::True),
+            ))
+        };
+        self.consume_token(
+            &token::TokenType::Semicolon,
+            "Expect ';' after 'for' loop condition",
+        )?;
+
+        let increment = if !self.check_next_token(&token::TokenType::RightParen) {
+            Some(self.expression(data)?)
+        } else {
+            None
+        };
+
+        self.consume_token(
+            &token::TokenType::RightParen,
+            "Expect ')' after 'for' clauses",
+        )?;
+
+        let mut body = self.statement(data)?;
+        body = if let Some(increment) = increment {
+            let mut desugared_body = LinkedList::new();
+            desugared_body.push_back(body);
+            desugared_body.push_back(stmt::Stmt::Expression {
+                expression: increment,
+            });
+            stmt::Stmt::Block {
+                statements: desugared_body,
+            }
+        } else {
+            body
+        };
+        body = stmt::Stmt::While {
+            condition,
+            body: Box::new(body),
+        };
+
+        body = if let Some(initialiser) = initialiser {
+            let mut desugared_initialiser = LinkedList::new();
+            desugared_initialiser.push_back(initialiser);
+            desugared_initialiser.push_back(body);
+            stmt::Stmt::Block {
+                statements: desugared_initialiser,
+            }
+        } else {
+            body
+        };
+
+        Ok(body)
     }
 
     fn block_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
@@ -465,6 +539,44 @@ mod test {
                 "if ( a == 10 and b == 20 ) a = 10;",
                 "(if (and (== (a) (10)) (== (b) (20))) (= (a) (10)))",
             ),
+            (
+                "while ( a == true ) a = false;",
+                "(while (== (a) (True)) (= (a) (False)))",
+            ),
+            (
+                "for ( var i = 1 ; i < 10 ; i = i + 1 ) print i;",
+                "(block
+(var (i) (1))
+(while (< (i) (10)) (block
+(print (i))
+(= (i) (+ (i) (1)))
+))
+)",
+            ),
+            (
+                "for ( i = 1 ; true ; i = i + 1 ) print i;",
+                "(block
+(= (i) (1))
+(while (True) (block
+(print (i))
+(= (i) (+ (i) (1)))
+))
+)",
+            ),
+            (
+                "for ( ; true ; i = i + 1 ) print i;",
+                "(while (True) (block
+(print (i))
+(= (i) (+ (i) (1)))
+))",
+            ),
+            (
+                "for ( i = 1 ; true ; ) print i;",
+                "(block
+(= (i) (1))
+(while (True) (print (i)))
+)",
+            ),
         ];
 
         for (src, expected_parse) in tests {
@@ -509,8 +621,25 @@ mod test {
                 "if ( a = 10 ) a = 10 ; else { b = 20;",
                 "Expect '}' after block",
             ),
-            ("if  a = 10 ) a = 10 ; ", "Expect '(' after if"),
-            ("if ( a = 10  a = 10 ; ", "Expect ')' after if condition"),
+            ("if  a = 10 ) a = 10 ; ", "Expect '(' after 'if'"),
+            ("if ( a = 10  a = 10 ; ", "Expect ')' after 'if' condition"),
+            ("while  true ) a = 10 ; ", "Expect '(' after 'while'"),
+            (
+                "while ( true a = 10 ; ",
+                "Expect ')' after 'while' condition",
+            ),
+            (
+                "for  i = 1 ; ; i = i + 1 ) print i;",
+                "Expect '(' after 'for'",
+            ),
+            (
+                "for ( i = 1 ; i = i + 1 ) print i;",
+                "Expect ';' after 'for' loop condition",
+            ),
+            (
+                "for ( i = 1 ; ; i = i + 1  print i;",
+                "Expect ')' after 'for' clauses",
+            ),
         ];
 
         for (src, expected_message) in tests {

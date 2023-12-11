@@ -774,4 +774,38 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn test_stmts() {
+        let tests = vec![
+            (
+                "var a = \"init\"; if (true) a = \"updated\" ; print a;",
+                "[print] \"updated\"",
+            ),
+            (
+                "var a = \"init\"; if (false) a = \"updated\" ; print a;",
+                "[print] \"init\"",
+            ),
+            (
+                "var a = 1; while ( a < 5) a = a + 1 ; print a;",
+                "[print] 5",
+            ),
+        ];
+
+        let reporter = TestReporter::build();
+        for (src, expected_message) in tests {
+            reporter.reset();
+            let tokens = scanner::scan_tokens(&reporter, src);
+            let statements = parser::parse(&reporter, tokens);
+            interpret(&reporter, statements);
+
+            if !reporter.has_message(expected_message) {
+                reporter.print_contents();
+                panic!(
+                    "Missing expected message for '{}' expected '{}'",
+                    src, expected_message
+                );
+            }
+        }
+    }
 }
