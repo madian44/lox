@@ -3,15 +3,16 @@ use std::collections::LinkedList;
 
 pub fn print_stmt(stmt: &stmt::Stmt) -> String {
     match stmt {
-        stmt::Stmt::Expression { expression } => print_expr(expression),
-        stmt::Stmt::Print { value } => format!("(print {})", print_expr(value)),
-        stmt::Stmt::Var { name, initialiser } => print_stmt_variable(name, initialiser),
         stmt::Stmt::Block { statements } => print_stmt_block(statements),
+        stmt::Stmt::Expression { expression } => print_expr(expression),
         stmt::Stmt::If {
             condition,
             then_branch,
             else_branch,
         } => print_stmt_if(condition, then_branch, else_branch),
+        stmt::Stmt::Print { value } => format!("(print {})", print_expr(value)),
+        stmt::Stmt::Var { name, initialiser } => print_stmt_variable(name, initialiser),
+        stmt::Stmt::While { condition, body } => print_stmt_while(condition, body),
     }
 }
 
@@ -55,6 +56,10 @@ fn print_stmt_if(
     result
 }
 
+fn print_stmt_while(condition: &expr::Expr, body: &stmt::Stmt) -> String {
+    format!("(while {} {})", print_expr(condition), print_stmt(body))
+}
+
 pub fn print_expr(expr: &expr::Expr) -> String {
     match expr {
         expr::Expr::Binary {
@@ -90,7 +95,7 @@ fn print_expr_grouping(expression: &expr::Expr) -> String {
 fn print_expr_literal(value: &token::Token) -> String {
     let value = match &value.literal {
         Some(token::Literal::Number(n)) => n.to_string(),
-        Some(token::Literal::String(s)) => format!("\"{}\"", s.to_string()),
+        Some(token::Literal::String(s)) => format!("\"{}\"", s),
         Some(token::Literal::Nil) => "Nil".to_string(),
         Some(token::Literal::False) => "False".to_string(),
         Some(token::Literal::True) => "True".to_string(),
@@ -380,5 +385,37 @@ mod test {
             "(if (or (True) (\"hello, world\")) (print (\"then branch\")) (print (\"else branch\")))",
             result
         );
+    }
+
+    #[test]
+    fn while_statement() {
+        let blank_location = location::FileLocation::new(0, 0);
+
+        let condition = expr::Expr::build_literal(token::Token::new(
+            token::TokenType::True,
+            "true",
+            blank_location,
+            blank_location,
+            Some(token::Literal::True),
+        ));
+
+        let body = expr::Expr::build_literal(token::Token::new(
+            token::TokenType::String,
+            "\"body\"",
+            blank_location,
+            blank_location,
+            Some(token::Literal::String("body".to_string())),
+        ));
+
+        let body = stmt::Stmt::Print { value: body };
+
+        let statement = stmt::Stmt::While {
+            condition,
+            body: Box::new(body),
+        };
+
+        let result = print_stmt(&statement);
+
+        assert_eq!("(while (True) (print (\"body\")))", result);
     }
 }

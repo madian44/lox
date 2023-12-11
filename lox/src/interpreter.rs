@@ -28,11 +28,7 @@ impl<'k> Interpreter<'k> {
 
     fn evaluate_stmt(&mut self, statement: &stmt::Stmt) -> Result<(), RuntimeError> {
         match statement {
-            stmt::Stmt::Print { value } => {
-                let result = self.evaluate_expr(value)?;
-                self.reporter.add_message(&format!("[print] {}", result));
-                Ok(())
-            }
+            stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
             stmt::Stmt::Expression { expression } => match self.evaluate_expr(expression) {
                 Ok(r) => {
                     self.reporter.add_message(&format!("[interpreter] {r}"));
@@ -40,13 +36,18 @@ impl<'k> Interpreter<'k> {
                 }
                 Err(err) => Err(err),
             },
-            stmt::Stmt::Var { name, initialiser } => self.evaluate_stmt_var(name, initialiser),
-            stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
             stmt::Stmt::If {
                 condition,
                 then_branch,
                 else_branch,
             } => self.evaluate_stmt_if(condition, then_branch, else_branch),
+            stmt::Stmt::Print { value } => {
+                let result = self.evaluate_expr(value)?;
+                self.reporter.add_message(&format!("[print] {}", result));
+                Ok(())
+            }
+            stmt::Stmt::Var { name, initialiser } => self.evaluate_stmt_var(name, initialiser),
+            stmt::Stmt::While { condition, body } => self.evaluate_stmt_while(condition, body),
         }
     }
 
@@ -88,6 +89,17 @@ impl<'k> Interpreter<'k> {
             self.evaluate_stmt(then_branch)?;
         } else if let Some(else_branch) = else_branch {
             self.evaluate_stmt(else_branch)?;
+        }
+        Ok(())
+    }
+
+    fn evaluate_stmt_while(
+        &mut self,
+        condition: &expr::Expr,
+        body: &stmt::Stmt,
+    ) -> Result<(), RuntimeError> {
+        while is_truthy(&(self.evaluate_expr(condition)?)) {
+            self.evaluate_stmt(body)?;
         }
         Ok(())
     }

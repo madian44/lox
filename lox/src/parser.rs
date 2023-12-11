@@ -132,6 +132,8 @@ impl<'k> Parser<'k> {
             self.if_statement(data)
         } else if self.consume_matching_token(&token::TokenType::Print) {
             self.print_statement(data)
+        } else if self.consume_matching_token(&token::TokenType::While) {
+            self.while_statement(data)
         } else if self.consume_matching_token(&token::TokenType::LeftBrace) {
             self.block_statement(data)
         } else {
@@ -164,6 +166,20 @@ impl<'k> Parser<'k> {
         let value = self.expression(data)?;
         self.consume_semicolon("Expect ';' after value")?;
         Ok(stmt::Stmt::Print { value })
+    }
+
+    fn while_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after while")?;
+        let condition = self.expression(data)?;
+        self.consume_token(
+            &token::TokenType::RightParen,
+            "Expect ')' after while condition",
+        )?;
+        let body = self.statement(data)?;
+        Ok(stmt::Stmt::While {
+            condition,
+            body: Box::new(body),
+        })
     }
 
     fn block_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
