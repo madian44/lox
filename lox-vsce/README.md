@@ -5,8 +5,8 @@
 ## 'Lox: Hello'
 Says hello
 
-## 'Lox: Scan'
-Scan contents of the active editor
+## 'Lox: Interpret File'
+Interpret contents of the active editor
 
 ## 'Lox: Scan Selected
 Scan the selected text

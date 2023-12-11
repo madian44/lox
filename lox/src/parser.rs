@@ -280,7 +280,6 @@ impl<'k> Parser<'k> {
 
     fn assignment_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
         let expr = self.or_expression(data)?;
-        //        let expr = self.equality_expression(data)?;
 
         if self.consume_matching_token(&token::TokenType::Equal) {
             let value = self.assignment_expression(data)?;

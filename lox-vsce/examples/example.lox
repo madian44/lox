@@ -1,0 +1,33 @@
+var s = "hello, world";
+print s;
+
+var b = false;
+if (b == true) {
+    s = "updated 1";
+}
+
+print s;
+
+b = true;
+if (b == true) {
+    s = "updated 2";
+}
+
+print s;
+
+var i = 0;
+
+while (i < 5) {
+    i = i + 1;
+    print i;
+}
+
+print i;
+print "while loop completed";
+
+for( var i = 10 ; i < 15 ; i = i + 1 ) {
+    print i;
+}
+
+print i;
+print "for loop completed";

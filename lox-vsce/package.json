@@ -2,7 +2,7 @@
   "name": "lox-vsce",
   "displayName": "lox-vsce",
   "description": "",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "engines": {
     "vscode": "^1.84.0"
   },
@@ -42,7 +42,7 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "lox-vsce.scanLox",
+          "command": "lox-vsce.interpretLox",
           "when": "editorLangId == lox"
         }
       ],
@@ -67,8 +67,8 @@
         "title": "Lox: Hello"
       },
       {
-        "command": "lox-vsce.scanLox",
-        "title": "Lox: Scan"
+        "command": "lox-vsce.interpretLox",
+        "title": "Lox: Interpret File"
       },
       {
         "command": "lox-vsce.scanSelectedLox",
@@ -91,12 +91,12 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "clean": "rm -rf out/*"
+    "clean": "rm -rf out/* ; rm -rf node_modules/*"
   },
   "devDependencies": {
     "@types/vscode": "^1.84.0",
     "@types/mocha": "^10.0.3",
-    "@types/node": "18.x",
+    "@types/node": "20.x",
     "@typescript-eslint/eslint-plugin": "^6.9.0",
     "@typescript-eslint/parser": "^6.9.0",
     "eslint": "^8.52.0",
