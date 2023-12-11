@@ -17,6 +17,11 @@ pub enum Expr {
     Literal {
         value: token::Token,
     },
+    Logical {
+        left: Box<Expr>,
+        operator: token::Token,
+        right: Box<Expr>,
+    },
     Unary {
         operator: token::Token,
         right: Box<Expr>,
@@ -50,6 +55,14 @@ impl Expr {
 
     pub fn build_literal(value: token::Token) -> Self {
         Expr::Literal { value }
+    }
+
+    pub fn build_logical(left: Expr, operator: token::Token, right: Expr) -> Self {
+        Expr::Logical {
+            left: Box::new(left),
+            operator,
+            right: Box::new(right),
+        }
     }
 
     pub fn build_unary(operator: token::Token, right: Expr) -> Self {

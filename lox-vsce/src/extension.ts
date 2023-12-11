@@ -30,22 +30,22 @@ export function activate(context: vscode.ExtensionContext) {
 	const diagnostics = vscode.languages.createDiagnosticCollection("lox");
 	context.subscriptions.push(diagnostics);
 
-	addScanLoxCommand(context, diagnostics);
+	addInterpretLoxCommand(context, diagnostics);
 	addScanSelectedLoxCommand(context, diagnostics);
 	addParseSelectedLoxCommand(context, diagnostics);
 	addInterpretSelectedLoxCommand(context, diagnostics);
 }
 
-function addScanLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
+function addInterpretLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
 
-	defineCommand(context, "lox-vsce.scanLox", () => {
+	defineCommand(context, "lox-vsce.interpretLox", () => {
 		const activeEditor = vscode.window.activeTextEditor;
 		if(!activeEditor) {
 			return;
 		}
 		const contents = activeEditor.document.getText();
 		const diagnosticCollection : vscode.Diagnostic[] = [];
-		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
+		wasm.interpret(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
 	});
 }

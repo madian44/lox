@@ -28,11 +28,7 @@ impl<'k> Interpreter<'k> {
 
     fn evaluate_stmt(&mut self, statement: &stmt::Stmt) -> Result<(), RuntimeError> {
         match statement {
-            stmt::Stmt::Print { value } => {
-                let result = self.evaluate_expr(value)?;
-                self.reporter.add_message(&format!("[print] {}", result));
-                Ok(())
-            }
+            stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
             stmt::Stmt::Expression { expression } => match self.evaluate_expr(expression) {
                 Ok(r) => {
                     self.reporter.add_message(&format!("[interpreter] {r}"));
@@ -40,8 +36,18 @@ impl<'k> Interpreter<'k> {
                 }
                 Err(err) => Err(err),
             },
+            stmt::Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => self.evaluate_stmt_if(condition, then_branch, else_branch),
+            stmt::Stmt::Print { value } => {
+                let result = self.evaluate_expr(value)?;
+                self.reporter.add_message(&format!("[print] {}", result));
+                Ok(())
+            }
             stmt::Stmt::Var { name, initialiser } => self.evaluate_stmt_var(name, initialiser),
-            stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
+            stmt::Stmt::While { condition, body } => self.evaluate_stmt_while(condition, body),
         }
     }
 
@@ -73,6 +79,31 @@ impl<'k> Interpreter<'k> {
         Ok(())
     }
 
+    fn evaluate_stmt_if(
+        &mut self,
+        condition: &expr::Expr,
+        then_branch: &stmt::Stmt,
+        else_branch: &Option<stmt::Stmt>,
+    ) -> Result<(), RuntimeError> {
+        if is_truthy(&self.evaluate_expr(condition)?) {
+            self.evaluate_stmt(then_branch)?;
+        } else if let Some(else_branch) = else_branch {
+            self.evaluate_stmt(else_branch)?;
+        }
+        Ok(())
+    }
+
+    fn evaluate_stmt_while(
+        &mut self,
+        condition: &expr::Expr,
+        body: &stmt::Stmt,
+    ) -> Result<(), RuntimeError> {
+        while is_truthy(&(self.evaluate_expr(condition)?)) {
+            self.evaluate_stmt(body)?;
+        }
+        Ok(())
+    }
+
     fn evaluate_expr(
         &mut self,
         expression: &expr::Expr,
@@ -88,6 +119,11 @@ impl<'k> Interpreter<'k> {
             } => self.evaluate_expr_binary(expression, left, operator, right),
             expr::Expr::Grouping { expression } => self.evaluate_expr(expression),
             expr::Expr::Literal { value } => self.evaluate_expr_literal(expression, value),
+            expr::Expr::Logical {
+                left,
+                operator,
+                right,
+            } => self.evaluate_expr_logical(left, operator, right),
             expr::Expr::Unary { operator, right } => {
                 self.evaluate_expr_unary(expression, operator, right)
             }
@@ -212,6 +248,24 @@ impl<'k> Interpreter<'k> {
         }
     }
 
+    fn evaluate_expr_logical(
+        &mut self,
+        left: &expr::Expr,
+        operator: &token::Token,
+        right: &expr::Expr,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        let left = self.evaluate_expr(left)?;
+        if operator.token_type == token::TokenType::Or {
+            if is_truthy(&left) {
+                return Ok(left);
+            }
+        } else if !is_truthy(&left) {
+            return Ok(left);
+        }
+
+        self.evaluate_expr(right)
+    }
+
     fn check_number_operand(
         &self,
         expression: &expr::Expr,
@@ -285,6 +339,11 @@ fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
         } => get_start_location(left),
         expr::Expr::Grouping { expression } => get_start_location(expression),
         expr::Expr::Literal { value } => &value.start,
+        expr::Expr::Logical {
+            left,
+            operator: _,
+            right: _,
+        } => get_start_location(left),
         expr::Expr::Unary { operator, right: _ } => &operator.start,
         expr::Expr::Variable { name } => &name.start,
     }
@@ -300,6 +359,11 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
         } => get_end_location(right),
         expr::Expr::Grouping { expression } => get_end_location(expression),
         expr::Expr::Literal { value } => &value.end,
+        expr::Expr::Logical {
+            left: _,
+            operator: _,
+            right,
+        } => get_end_location(right),
         expr::Expr::Unary { operator: _, right } => get_end_location(right),
         expr::Expr::Variable { name } => &name.end,
     }
@@ -676,6 +740,16 @@ mod test {
             ("print \"value\";", "[print] \"value\""),
             ("10 + 10;", "[interpreter] 20"),
             ("{true == false;} ", "[interpreter] false"),
+            (
+                "if (true) print \"then branch\"; ",
+                "[print] \"then branch\"",
+            ),
+            (
+                "if (false) print \"then branch\"; else print \"else branch\";",
+                "[print] \"else branch\"",
+            ),
+            ("print \"hi\" or 2 ; ", "[print] \"hi\""),
+            ("print nil or \"yes\" ; ", "[print] \"yes\""),
         ];
 
         let reporter = TestReporter::build();
@@ -689,11 +763,48 @@ mod test {
                 }
                 if !reporter.has_message(expected_message) {
                     reporter.print_contents();
-                    panic!("Missing expected message for '{}'", src);
+                    panic!(
+                        "Missing expected message for '{}' expected '{}'",
+                        src, expected_message
+                    );
                 }
             } else {
                 reporter.print_contents();
                 panic!("Statement not found for '{}'", src);
+            }
+        }
+    }
+
+    #[test]
+    fn test_stmts() {
+        let tests = vec![
+            (
+                "var a = \"init\"; if (true) a = \"updated\" ; print a;",
+                "[print] \"updated\"",
+            ),
+            (
+                "var a = \"init\"; if (false) a = \"updated\" ; print a;",
+                "[print] \"init\"",
+            ),
+            (
+                "var a = 1; while ( a < 5) a = a + 1 ; print a;",
+                "[print] 5",
+            ),
+        ];
+
+        let reporter = TestReporter::build();
+        for (src, expected_message) in tests {
+            reporter.reset();
+            let tokens = scanner::scan_tokens(&reporter, src);
+            let statements = parser::parse(&reporter, tokens);
+            interpret(&reporter, statements);
+
+            if !reporter.has_message(expected_message) {
+                reporter.print_contents();
+                panic!(
+                    "Missing expected message for '{}' expected '{}'",
+                    src, expected_message
+                );
             }
         }
     }

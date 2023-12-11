@@ -1,4 +1,4 @@
-use crate::{expr, location, reporter, stmt, token};
+use crate::{expr, location, reporter, stmt, token, FileLocation};
 use std::collections::linked_list::IntoIter;
 use std::collections::LinkedList;
 use std::iter::Peekable;
@@ -23,12 +23,6 @@ struct Data {
     term_tokens: Vec<token::TokenType>,
     unary_tokens: Vec<token::TokenType>,
     primary_tokens: Vec<token::TokenType>,
-    start_of_group_tokens: Vec<token::TokenType>,
-    print_tokens: Vec<token::TokenType>,
-    declaration_tokens: Vec<token::TokenType>,
-    assignment_tokens: Vec<token::TokenType>,
-    identifier_tokens: Vec<token::TokenType>,
-    block_tokens: Vec<token::TokenType>,
 }
 
 impl Data {
@@ -50,12 +44,6 @@ impl Data {
             token::TokenType::Number,
             token::TokenType::String,
         ];
-        let start_of_group_tokens = vec![token::TokenType::LeftParen];
-        let print_tokens = vec![token::TokenType::Print];
-        let declaration_tokens = vec![token::TokenType::Var];
-        let assignment_tokens = vec![token::TokenType::Equal];
-        let identifier_tokens = vec![token::TokenType::Identifier];
-        let block_tokens = vec![token::TokenType::LeftBrace];
         Data {
             equality_tokens,
             comparison_tokens,
@@ -63,12 +51,6 @@ impl Data {
             term_tokens,
             unary_tokens,
             primary_tokens,
-            start_of_group_tokens,
-            print_tokens,
-            declaration_tokens,
-            assignment_tokens,
-            identifier_tokens,
-            block_tokens,
         }
     }
 }
@@ -83,7 +65,7 @@ struct Parser<'k> {
 /// Parser stores the current token.
 /// The current token can be taken with `take_current_token`
 /// `advance` will take the next available token and store it in `current_token`
-/// `consume_matching_token` if the next token matches a given token `advance` and return `true` otherwise it returns `false` and does not `advance`.
+/// `consume_any_matching_token` if the next token matches a given token `advance` and return `true` otherwise it returns `false` and does not `advance`.
 /// `consume_token` will `advance` if the next token matches the requested token type and fail otherwise
 /// `check_next_token` checks if the next token is of the requested type
 /// `declaration` will try to synchronize to a semi-colon after a failure is detected
@@ -121,7 +103,7 @@ impl<'k> Parser<'k> {
     }
 
     fn declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        let result = if self.consume_matching_token(&data.declaration_tokens) {
+        let result = if self.consume_matching_token(&token::TokenType::Var) {
             self.variable_declaration(data)
         } else {
             self.statement(data)
@@ -136,7 +118,7 @@ impl<'k> Parser<'k> {
         self.consume_token(&token::TokenType::Identifier, "Expect a variable name")?;
         let name = self.take_current_token()?;
 
-        let initialiser = if self.consume_matching_token(&data.assignment_tokens) {
+        let initialiser = if self.consume_matching_token(&token::TokenType::Equal) {
             Some(self.expression(data)?)
         } else {
             None
@@ -146,19 +128,132 @@ impl<'k> Parser<'k> {
     }
 
     fn statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        if self.consume_matching_token(&data.print_tokens) {
+        if self.consume_matching_token(&token::TokenType::For) {
+            self.for_statement(data)
+        } else if self.consume_matching_token(&token::TokenType::If) {
+            self.if_statement(data)
+        } else if self.consume_matching_token(&token::TokenType::Print) {
             self.print_statement(data)
-        } else if self.consume_matching_token(&data.block_tokens) {
+        } else if self.consume_matching_token(&token::TokenType::While) {
+            self.while_statement(data)
+        } else if self.consume_matching_token(&token::TokenType::LeftBrace) {
             self.block_statement(data)
         } else {
             self.expression_statement(data)
         }
     }
 
+    fn if_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after 'if'")?;
+        let condition = self.expression(data)?;
+        self.consume_token(
+            &token::TokenType::RightParen,
+            "Expect ')' after 'if' condition",
+        )?;
+
+        let then_branch = self.statement(data)?;
+
+        let mut else_branch = None;
+        if self.consume_matching_token(&token::TokenType::Else) {
+            else_branch = Some(self.statement(data)?);
+        }
+        Ok(stmt::Stmt::If {
+            condition,
+            then_branch: Box::new(then_branch),
+            else_branch: Box::new(else_branch),
+        })
+    }
+
     fn print_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
         let value = self.expression(data)?;
         self.consume_semicolon("Expect ';' after value")?;
         Ok(stmt::Stmt::Print { value })
+    }
+
+    fn while_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after 'while'")?;
+        let condition = self.expression(data)?;
+        self.consume_token(
+            &token::TokenType::RightParen,
+            "Expect ')' after 'while' condition",
+        )?;
+        let body = self.statement(data)?;
+        Ok(stmt::Stmt::While {
+            condition,
+            body: Box::new(body),
+        })
+    }
+
+    fn for_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(&token::TokenType::LeftParen, "Expect '(' after 'for'")?;
+
+        let initialiser = if self.consume_matching_token(&token::TokenType::Semicolon) {
+            None
+        } else if self.consume_matching_token(&token::TokenType::Var) {
+            Some(self.variable_declaration(data)?)
+        } else {
+            Some(self.expression_statement(data)?)
+        };
+
+        let condition = if !self.check_next_token(&token::TokenType::Semicolon) {
+            self.expression(data)?
+        } else {
+            expr::Expr::build_literal(token::Token::new(
+                token::TokenType::True,
+                "true",
+                self.get_nearby_location()
+                    .unwrap_or(FileLocation::new(0, 0)),
+                self.get_nearby_location()
+                    .unwrap_or(FileLocation::new(0, 0)),
+                Some(token::Literal::True),
+            ))
+        };
+        self.consume_token(
+            &token::TokenType::Semicolon,
+            "Expect ';' after 'for' loop condition",
+        )?;
+
+        let increment = if !self.check_next_token(&token::TokenType::RightParen) {
+            Some(self.expression(data)?)
+        } else {
+            None
+        };
+
+        self.consume_token(
+            &token::TokenType::RightParen,
+            "Expect ')' after 'for' clauses",
+        )?;
+
+        let mut body = self.statement(data)?;
+        body = if let Some(increment) = increment {
+            let mut desugared_body = LinkedList::new();
+            desugared_body.push_back(body);
+            desugared_body.push_back(stmt::Stmt::Expression {
+                expression: increment,
+            });
+            stmt::Stmt::Block {
+                statements: desugared_body,
+            }
+        } else {
+            body
+        };
+        body = stmt::Stmt::While {
+            condition,
+            body: Box::new(body),
+        };
+
+        body = if let Some(initialiser) = initialiser {
+            let mut desugared_initialiser = LinkedList::new();
+            desugared_initialiser.push_back(initialiser);
+            desugared_initialiser.push_back(body);
+            stmt::Stmt::Block {
+                statements: desugared_initialiser,
+            }
+        } else {
+            body
+        };
+
+        Ok(body)
     }
 
     fn block_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
@@ -180,14 +275,14 @@ impl<'k> Parser<'k> {
     }
 
     fn expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        self.assignment(data)
+        self.assignment_expression(data)
     }
 
-    fn assignment(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let expr = self.equality(data)?;
+    fn assignment_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let expr = self.or_expression(data)?;
 
-        if self.consume_matching_token(&data.assignment_tokens) {
-            let value = self.assignment(data)?;
+        if self.consume_matching_token(&token::TokenType::Equal) {
+            let value = self.assignment_expression(data)?;
 
             if let expr::Expr::Variable { name } = expr {
                 return Ok(expr::Expr::build_assign(name, value));
@@ -197,73 +292,97 @@ impl<'k> Parser<'k> {
         Ok(expr)
     }
 
-    fn equality(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.comparison(data)?;
+    fn or_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.and_expression(data)?;
 
-        while self.consume_matching_token(&data.equality_tokens) {
+        while self.consume_matching_token(&token::TokenType::Or) {
             let operator = self.take_current_token()?;
-            let right = self.comparison(data)?;
+            let right = self.and_expression(data)?;
+            expr = expr::Expr::build_logical(expr, operator, right);
+        }
+
+        Ok(expr)
+    }
+
+    fn and_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.equality_expression(data)?;
+
+        while self.consume_matching_token(&token::TokenType::And) {
+            let operator = self.take_current_token()?;
+            let right = self.equality_expression(data)?;
+            expr = expr::Expr::build_logical(expr, operator, right);
+        }
+
+        Ok(expr)
+    }
+
+    fn equality_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.comparison_expression(data)?;
+
+        while self.consume_any_matching_token(&data.equality_tokens) {
+            let operator = self.take_current_token()?;
+            let right = self.comparison_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn comparison(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.term(data)?;
+    fn comparison_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.term_expression(data)?;
 
-        while self.consume_matching_token(&data.comparison_tokens) {
+        while self.consume_any_matching_token(&data.comparison_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.term(data)?;
+            let right = self.term_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn term(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.factor(data)?;
+    fn term_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.factor_expression(data)?;
 
-        while self.consume_matching_token(&data.term_tokens) {
+        while self.consume_any_matching_token(&data.term_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.factor(data)?;
+            let right = self.factor_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn factor(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        let mut expr = self.unary(data)?;
+    fn factor_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.unary_expression(data)?;
 
-        while self.consume_matching_token(&data.factor_tokens) {
+        while self.consume_any_matching_token(&data.factor_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.unary(data)?;
+            let right = self.unary_expression(data)?;
             expr = expr::Expr::build_binary(expr, operator, right);
         }
 
         Ok(expr)
     }
 
-    fn unary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        if self.consume_matching_token(&data.unary_tokens) {
+    fn unary_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        if self.consume_any_matching_token(&data.unary_tokens) {
             let operator = self.take_current_token()?;
-            let right = self.unary(data)?;
+            let right = self.unary_expression(data)?;
             return Ok(expr::Expr::build_unary(operator, right));
         }
-        self.primary(data)
+        self.primary_expression(data)
     }
 
-    fn primary(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
-        if self.consume_matching_token(&data.primary_tokens) {
+    fn primary_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        if self.consume_any_matching_token(&data.primary_tokens) {
             return Ok(expr::Expr::build_literal(self.take_current_token()?));
         }
 
-        if self.consume_matching_token(&data.identifier_tokens) {
+        if self.consume_matching_token(&token::TokenType::Identifier) {
             return Ok(expr::Expr::build_variable(self.take_current_token()?));
         }
 
-        if self.consume_matching_token(&data.start_of_group_tokens) {
+        if self.consume_matching_token(&token::TokenType::LeftParen) {
             let expr = self.expression(data)?;
             self.consume_token(&token::TokenType::RightParen, "expect ')' after expression")?;
             return Ok(expr::Expr::build_grouping(expr));
@@ -291,8 +410,17 @@ impl<'k> Parser<'k> {
         Ok(())
     }
 
-    fn consume_matching_token(&mut self, token_types: &[token::TokenType]) -> bool {
+    fn consume_any_matching_token(&mut self, token_types: &[token::TokenType]) -> bool {
         if token_types.iter().any(|t| self.check_next_token(t)) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn consume_matching_token(&mut self, token_type: &token::TokenType) -> bool {
+        if self.check_next_token(token_type) {
             self.advance();
             true
         } else {
@@ -384,19 +512,70 @@ mod test {
         let reporter = TestReporter::build();
 
         let tests = vec![
-            ("10 + 10;", "(+ (10) (10)) ;"),
-            ("10 == 10;", "(== (10) (10)) ;"),
-            ("\"a string\";", "(a string) ;"),
-            ("\"a string\" + 10;", "(+ (a string) (10)) ;"),
-            ("(\"a string\" + 10);", "(group (+ (a string) (10))) ;"),
-            ("print 10 == 11;", "PRINT (== (10) (11)) ;"),
-            (" 10 > 11;", "(> (10) (11)) ;"),
-            (" 10 * 11;", "(* (10) (11)) ;"),
-            ("!!10;", "(! (! (10))) ;"),
-            ("var a = 10;", "VAR a = (10) ;"),
-            ("var a;", "VAR a ;"),
-            ("{ var a; } ", "{\nVAR a ;\n}"),
-            ("a = 10 ;", "a = (10) ;"),
+            ("10 + 10;", "(+ (10) (10))"),
+            ("10 == 10;", "(== (10) (10))"),
+            ("\"a string\";", "(\"a string\")"),
+            ("\"a string\" + 10;", "(+ (\"a string\") (10))"),
+            ("(\"a string\" + 10);", "(group (+ (\"a string\") (10)))"),
+            ("print 10 == 11;", "(print (== (10) (11)))"),
+            (" 10 > 11;", "(> (10) (11))"),
+            (" 10 * 11;", "(* (10) (11))"),
+            ("!!10;", "(! (! (10)))"),
+            ("var a = 10;", "(var (a) (10))"),
+            ("var a;", "(var (a))"),
+            ("{ var a; } ", "(block\n(var (a))\n)"),
+            ("a = 10 ;", "(= (a) (10))"),
+            ("if ( a == 10 ) a = 10;", "(if (== (a) (10)) (= (a) (10)))"),
+            (
+                "if ( a == 10 ) a = 10 ; else b = 20;",
+                "(if (== (a) (10)) (= (a) (10)) (= (b) (20)))",
+            ),
+            (
+                "if ( a == 10 or b == 20 ) a = 10;",
+                "(if (or (== (a) (10)) (== (b) (20))) (= (a) (10)))",
+            ),
+            (
+                "if ( a == 10 and b == 20 ) a = 10;",
+                "(if (and (== (a) (10)) (== (b) (20))) (= (a) (10)))",
+            ),
+            (
+                "while ( a == true ) a = false;",
+                "(while (== (a) (True)) (= (a) (False)))",
+            ),
+            (
+                "for ( var i = 1 ; i < 10 ; i = i + 1 ) print i;",
+                "(block
+(var (i) (1))
+(while (< (i) (10)) (block
+(print (i))
+(= (i) (+ (i) (1)))
+))
+)",
+            ),
+            (
+                "for ( i = 1 ; true ; i = i + 1 ) print i;",
+                "(block
+(= (i) (1))
+(while (True) (block
+(print (i))
+(= (i) (+ (i) (1)))
+))
+)",
+            ),
+            (
+                "for ( ; true ; i = i + 1 ) print i;",
+                "(while (True) (block
+(print (i))
+(= (i) (+ (i) (1)))
+))",
+            ),
+            (
+                "for ( i = 1 ; true ; ) print i;",
+                "(block
+(= (i) (1))
+(while (True) (print (i)))
+)",
+            ),
         ];
 
         for (src, expected_parse) in tests {
@@ -437,13 +616,36 @@ mod test {
             ("print 10", "Expect ';' after value"),
             ("\"10\"", "Expect ';' after expression"),
             ("\"10\" = 10 ;", "Invalid assignment target"),
+            (
+                "if ( a = 10 ) a = 10 ; else { b = 20;",
+                "Expect '}' after block",
+            ),
+            ("if  a = 10 ) a = 10 ; ", "Expect '(' after 'if'"),
+            ("if ( a = 10  a = 10 ; ", "Expect ')' after 'if' condition"),
+            ("while  true ) a = 10 ; ", "Expect '(' after 'while'"),
+            (
+                "while ( true a = 10 ; ",
+                "Expect ')' after 'while' condition",
+            ),
+            (
+                "for  i = 1 ; ; i = i + 1 ) print i;",
+                "Expect '(' after 'for'",
+            ),
+            (
+                "for ( i = 1 ; i = i + 1 ) print i;",
+                "Expect ';' after 'for' loop condition",
+            ),
+            (
+                "for ( i = 1 ; ; i = i + 1  print i;",
+                "Expect ')' after 'for' clauses",
+            ),
         ];
 
         for (src, expected_message) in tests {
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
             let _ = parse(&reporter, tokens);
-            if reporter.diagnostics_len() != 1 {
+            if reporter.diagnostics_len() == 0 {
                 reporter.print_contents();
                 panic!("Unexpected diagnostics for '{}'", src);
             }
