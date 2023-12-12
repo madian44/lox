@@ -1,142 +1,196 @@
-use crate::{expr, stmt, token};
-use std::collections::LinkedList;
+#[cfg(test)]
+use crate::expr;
+use crate::stmt;
 
 pub fn print_stmt(stmt: &stmt::Stmt) -> String {
-    match stmt {
-        stmt::Stmt::Block { statements } => print_stmt_block(statements),
-        stmt::Stmt::Expression { expression } => print_expr(expression),
-        stmt::Stmt::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => print_stmt_if(condition, then_branch, else_branch),
-        stmt::Stmt::Print { value } => format!("(print {})", print_expr(value)),
-        stmt::Stmt::Var { name, initialiser } => print_stmt_variable(name, initialiser),
-        stmt::Stmt::While { condition, body } => print_stmt_while(condition, body),
-    }
+    internal::print_stmt(0, stmt)
 }
 
-fn print_stmt_variable(name: &token::Token, initialiser: &Option<expr::Expr>) -> String {
-    let initialiser = match initialiser {
-        Some(expr) => format!(" {}", print_expr(expr)),
-        None => "".to_string(),
-    };
-    format!("(var ({}){})", name.lexeme, initialiser)
-}
-
-fn print_stmt_block(statements: &LinkedList<stmt::Stmt>) -> String {
-    let mut result = String::from("(block\n");
-
-    for statement in statements {
-        result.push_str(&print_stmt(statement));
-        result.push('\n');
-    }
-
-    result.push(')');
-    result
-}
-
-fn print_stmt_if(
-    condition: &expr::Expr,
-    then_branch: &stmt::Stmt,
-    else_branch: &Option<stmt::Stmt>,
-) -> String {
-    let mut result = String::from("(if ");
-
-    result.push_str(&format!(
-        "{} {}",
-        print_expr(condition),
-        print_stmt(then_branch)
-    ));
-    if let Some(else_branch) = else_branch {
-        result.push_str(&format!(" {}", print_stmt(else_branch)))
-    }
-    result.push(')');
-
-    result
-}
-
-fn print_stmt_while(condition: &expr::Expr, body: &stmt::Stmt) -> String {
-    format!("(while {} {})", print_expr(condition), print_stmt(body))
-}
-
+#[cfg(test)]
 pub fn print_expr(expr: &expr::Expr) -> String {
-    match expr {
-        expr::Expr::Binary {
-            left,
-            operator,
-            right,
-        } => print_expr_binary(left, operator, right),
-        expr::Expr::Grouping { expression } => print_expr_grouping(expression),
-        expr::Expr::Literal { value } => print_expr_literal(value),
-        expr::Expr::Logical {
-            left,
-            operator,
-            right,
-        } => print_expr_logical(left, operator, right),
-        expr::Expr::Unary { operator, right } => print_expr_unary(operator, right),
-        expr::Expr::Variable { name } => print_expr_variable(name),
-        expr::Expr::Assign { name, value } => print_expr_assign(name, value),
-    }
+    internal::print_expr(expr)
 }
 
-fn print_expr_assign(name: &token::Token, value: &expr::Expr) -> String {
-    format!("(= ({}) {})", name.lexeme, print_expr(value))
-}
+mod internal {
+    use crate::{expr, stmt, token};
+    use std::collections::LinkedList;
 
-fn print_expr_binary(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
-    parenthesize(&operator.lexeme, vec![left, right])
-}
-
-fn print_expr_grouping(expression: &expr::Expr) -> String {
-    parenthesize("group", vec![expression])
-}
-
-fn print_expr_literal(value: &token::Token) -> String {
-    let value = match &value.literal {
-        Some(token::Literal::Number(n)) => n.to_string(),
-        Some(token::Literal::String(s)) => format!("\"{}\"", s),
-        Some(token::Literal::Nil) => "Nil".to_string(),
-        Some(token::Literal::False) => "False".to_string(),
-        Some(token::Literal::True) => "True".to_string(),
-        None => "None".to_string(),
-    };
-    parenthesize(&value, vec![])
-}
-
-fn print_expr_logical(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
-    format!(
-        "({1} {0} {2})",
-        print_expr(left),
-        operator.lexeme,
-        print_expr(right)
-    )
-}
-
-fn print_expr_unary(operator: &token::Token, right: &expr::Expr) -> String {
-    parenthesize(&operator.lexeme, vec![right])
-}
-
-fn print_expr_variable(name: &token::Token) -> String {
-    format!("({})", name.lexeme.clone())
-}
-
-fn parenthesize(name: &str, exprs: Vec<&expr::Expr>) -> String {
-    let mut output = String::from("(");
-    output.push_str(name);
-    for expr in exprs {
-        output.push(' ');
-        output.push_str(&print_expr(expr))
+    pub fn print_stmt(indent: usize, stmt: &stmt::Stmt) -> String {
+        match stmt {
+            stmt::Stmt::Block { statements } => print_stmt_block(indent, statements),
+            stmt::Stmt::Expression { expression } => print_stmt_expr(indent, expression),
+            stmt::Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => print_stmt_if(indent, condition, then_branch, else_branch),
+            stmt::Stmt::Print { value } => print_stmt_print(indent, value),
+            stmt::Stmt::Var { name, initialiser } => print_stmt_variable(indent, name, initialiser),
+            stmt::Stmt::While { condition, body } => print_stmt_while(indent, condition, body),
+        }
     }
 
-    output.push(')');
-    output
+    fn print_stmt_expr(indent: usize, expr: &expr::Expr) -> String {
+        format!(
+            "{}(expression {})\n",
+            indent_string(indent),
+            print_expr(expr)
+        )
+    }
+
+    fn print_stmt_print(indent: usize, expr: &expr::Expr) -> String {
+        format!("{}(print {})\n", indent_string(indent), print_expr(expr))
+    }
+
+    fn print_stmt_variable(
+        indent: usize,
+        name: &token::Token,
+        initialiser: &Option<expr::Expr>,
+    ) -> String {
+        let initialiser = match initialiser {
+            Some(expr) => format!(" {}", print_expr(expr)),
+            None => "".to_string(),
+        };
+        format!(
+            "{}(var ({}){})\n",
+            indent_string(indent),
+            name.lexeme,
+            initialiser
+        )
+    }
+
+    fn print_stmt_block(indent: usize, statements: &LinkedList<stmt::Stmt>) -> String {
+        let mut result = format!("{}(block\n", indent_string(indent));
+
+        for statement in statements {
+            result.push_str(&print_stmt(indent + 1, statement));
+        }
+
+        result.push_str(&format!("{})\n", indent_string(indent)));
+        result
+    }
+
+    fn print_stmt_if(
+        indent: usize,
+        condition: &expr::Expr,
+        then_branch: &stmt::Stmt,
+        else_branch: &Option<stmt::Stmt>,
+    ) -> String {
+        let mut result = format!("{}(if ", indent_string(indent));
+
+        result.push_str(&format!("{}\n", print_expr(condition),));
+        result.push_str(&print_stmt(indent + 1, then_branch));
+        if let Some(else_branch) = else_branch {
+            result.push_str(&print_stmt(indent + 1, else_branch));
+        }
+        result.push_str(&format!("{})\n", indent_string(indent)));
+
+        result
+    }
+
+    fn print_stmt_while(indent: usize, condition: &expr::Expr, body: &stmt::Stmt) -> String {
+        let mut result = format!(
+            "{}(while {}\n",
+            indent_string(indent),
+            print_expr(condition),
+        );
+        result.push_str(&print_stmt(indent + 1, body));
+        result.push_str(&format!("{})\n", indent_string(indent)));
+        result
+    }
+
+    pub fn print_expr(expr: &expr::Expr) -> String {
+        match expr {
+            expr::Expr::Binary {
+                left,
+                operator,
+                right,
+            } => print_expr_binary(left, operator, right),
+            expr::Expr::Grouping { expression } => print_expr_grouping(expression),
+            expr::Expr::Literal { value } => print_expr_literal(value),
+            expr::Expr::Logical {
+                left,
+                operator,
+                right,
+            } => print_expr_logical(left, operator, right),
+            expr::Expr::Unary { operator, right } => print_expr_unary(operator, right),
+            expr::Expr::Variable { name } => print_expr_variable(name),
+            expr::Expr::Assign { name, value } => print_expr_assign(name, value),
+        }
+    }
+
+    fn print_expr_assign(name: &token::Token, value: &expr::Expr) -> String {
+        format!("(= ({}) {})", name.lexeme, print_expr(value))
+    }
+
+    fn print_expr_binary(left: &expr::Expr, operator: &token::Token, right: &expr::Expr) -> String {
+        parenthesize(&operator.lexeme, vec![left, right])
+    }
+
+    fn print_expr_grouping(expression: &expr::Expr) -> String {
+        parenthesize("group", vec![expression])
+    }
+
+    fn print_expr_literal(value: &token::Token) -> String {
+        let value = match &value.literal {
+            Some(token::Literal::Number(n)) => n.to_string(),
+            Some(token::Literal::String(s)) => format!("\"{}\"", s),
+            Some(token::Literal::Nil) => "Nil".to_string(),
+            Some(token::Literal::False) => "False".to_string(),
+            Some(token::Literal::True) => "True".to_string(),
+            None => "None".to_string(),
+        };
+        parenthesize(&value, vec![])
+    }
+
+    fn print_expr_logical(
+        left: &expr::Expr,
+        operator: &token::Token,
+        right: &expr::Expr,
+    ) -> String {
+        format!(
+            "({1} {0} {2})",
+            print_expr(left),
+            operator.lexeme,
+            print_expr(right)
+        )
+    }
+
+    fn print_expr_unary(operator: &token::Token, right: &expr::Expr) -> String {
+        parenthesize(&operator.lexeme, vec![right])
+    }
+
+    fn print_expr_variable(name: &token::Token) -> String {
+        format!("({})", name.lexeme.clone())
+    }
+
+    fn parenthesize(name: &str, exprs: Vec<&expr::Expr>) -> String {
+        let mut output = String::from("(");
+        output.push_str(name);
+        for expr in exprs {
+            output.push(' ');
+            output.push_str(&print_expr(expr))
+        }
+
+        output.push(')');
+        output
+    }
+
+    fn indent_string(indent: usize) -> String {
+        format!("{:width$}", "", width = 4 * indent)
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::location;
+    use crate::{location, token};
+    use std::collections::LinkedList;
+
+    fn unindent_string(source: &str) -> String {
+        let re = regex::Regex::new(r"\n\s+[|]").unwrap();
+        re.replace_all(source, "\n").to_string()
+    }
 
     #[test]
     fn print_statement() {
@@ -179,7 +233,7 @@ mod test {
 
         let result = print_stmt(&statement);
 
-        assert_eq!("(print (* (- (123)) (group (45.67))))", result);
+        assert_eq!("(print (* (- (123)) (group (45.67))))\n", result);
     }
 
     #[test]
@@ -214,7 +268,7 @@ mod test {
 
         let result = print_stmt(&statement);
 
-        assert_eq!("(== (True) (True))", result);
+        assert_eq!("(expression (== (True) (True)))\n", result);
     }
 
     #[test]
@@ -244,7 +298,7 @@ mod test {
 
         let result = print_stmt(&statement);
 
-        assert_eq!("(var (a) (True))", result);
+        assert_eq!("(var (a) (True))\n", result);
 
         let name = token::Token::new(
             token::TokenType::Identifier,
@@ -261,7 +315,7 @@ mod test {
 
         let result = print_stmt(&statement);
 
-        assert_eq!("(var (b))", result);
+        assert_eq!("(var (b))\n", result);
     }
 
     #[test]
@@ -315,10 +369,12 @@ mod test {
         let result = print_stmt(&statement);
 
         assert_eq!(
-            "(block
-(var (a) (True))
-(= (a) (False))
-)",
+            unindent_string(
+                "(block
+                    |    (var (a) (True))
+                    |    (expression (= (a) (False)))
+                    |)\n"
+            ),
             result
         );
     }
@@ -382,7 +438,12 @@ mod test {
         let result = print_stmt(&statement);
 
         assert_eq!(
-            "(if (or (True) (\"hello, world\")) (print (\"then branch\")) (print (\"else branch\")))",
+            unindent_string(
+                "(if (or (True) (\"hello, world\"))
+                    |    (print (\"then branch\"))
+                    |    (print (\"else branch\"))
+                    |)\n"
+            ),
             result
         );
     }
@@ -416,6 +477,13 @@ mod test {
 
         let result = print_stmt(&statement);
 
-        assert_eq!("(while (True) (print (\"body\")))", result);
+        assert_eq!(
+            unindent_string(
+                "(while (True)
+                    |    (print (\"body\"))
+                    |)\n"
+            ),
+            result
+        );
     }
 }

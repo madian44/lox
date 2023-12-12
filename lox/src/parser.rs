@@ -507,79 +507,102 @@ mod test {
     use crate::reporter::test::TestReporter;
     use crate::{ast_printer, scanner, Reporter};
 
+    fn unindent_string(source: &str) -> String {
+        let re = regex::Regex::new(r"\n\s+[|]").unwrap();
+        re.replace_all(source, "\n").to_string()
+    }
+
     #[test]
     fn production_tests() {
         let reporter = TestReporter::build();
 
         let tests = vec![
-            ("10 + 10;", "(+ (10) (10))"),
-            ("10 == 10;", "(== (10) (10))"),
-            ("\"a string\";", "(\"a string\")"),
-            ("\"a string\" + 10;", "(+ (\"a string\") (10))"),
-            ("(\"a string\" + 10);", "(group (+ (\"a string\") (10)))"),
-            ("print 10 == 11;", "(print (== (10) (11)))"),
-            (" 10 > 11;", "(> (10) (11))"),
-            (" 10 * 11;", "(* (10) (11))"),
-            ("!!10;", "(! (! (10)))"),
-            ("var a = 10;", "(var (a) (10))"),
-            ("var a;", "(var (a))"),
-            ("{ var a; } ", "(block\n(var (a))\n)"),
-            ("a = 10 ;", "(= (a) (10))"),
-            ("if ( a == 10 ) a = 10;", "(if (== (a) (10)) (= (a) (10)))"),
+            ("10 + 10;", "(expression (+ (10) (10)))\n"),
+            ("10 == 10;", "(expression (== (10) (10)))\n"),
+            ("\"a string\";", "(expression (\"a string\"))\n"),
+            (
+                "\"a string\" + 10;",
+                "(expression (+ (\"a string\") (10)))\n",
+            ),
+            (
+                "(\"a string\" + 10);",
+                "(expression (group (+ (\"a string\") (10))))\n",
+            ),
+            ("print 10 == 11;", "(print (== (10) (11)))\n"),
+            (" 10 > 11;", "(expression (> (10) (11)))\n"),
+            (" 10 * 11;", "(expression (* (10) (11)))\n"),
+            ("!!10;", "(expression (! (! (10))))\n"),
+            ("var a = 10;", "(var (a) (10))\n"),
+            ("var a;", "(var (a))\n"),
+            ("{ var a; } ", "(block\n    (var (a))\n)\n"),
+            ("a = 10 ;", "(expression (= (a) (10)))\n"),
+            (
+                "if ( a == 10 ) a = 10;",
+                "(if (== (a) (10))\n    (expression (= (a) (10)))\n)\n",
+            ),
             (
                 "if ( a == 10 ) a = 10 ; else b = 20;",
-                "(if (== (a) (10)) (= (a) (10)) (= (b) (20)))",
+                "(if (== (a) (10))\n    (expression (= (a) (10)))\n    (expression (= (b) (20)))\n)\n",
             ),
             (
                 "if ( a == 10 or b == 20 ) a = 10;",
-                "(if (or (== (a) (10)) (== (b) (20))) (= (a) (10)))",
+                "(if (or (== (a) (10)) (== (b) (20)))\n    (expression (= (a) (10)))\n)\n",
             ),
             (
                 "if ( a == 10 and b == 20 ) a = 10;",
-                "(if (and (== (a) (10)) (== (b) (20))) (= (a) (10)))",
+                "(if (and (== (a) (10)) (== (b) (20)))\n    (expression (= (a) (10)))\n)\n",
             ),
             (
                 "while ( a == true ) a = false;",
-                "(while (== (a) (True)) (= (a) (False)))",
+                "(while (== (a) (True))\n    (expression (= (a) (False)))\n)\n",
             ),
             (
                 "for ( var i = 1 ; i < 10 ; i = i + 1 ) print i;",
                 "(block
-(var (i) (1))
-(while (< (i) (10)) (block
-(print (i))
-(= (i) (+ (i) (1)))
-))
-)",
+                |    (var (i) (1))
+                |    (while (< (i) (10))
+                |        (block
+                |            (print (i))
+                |            (expression (= (i) (+ (i) (1))))
+                |        )
+                |    )
+                |)\n",
             ),
             (
                 "for ( i = 1 ; true ; i = i + 1 ) print i;",
                 "(block
-(= (i) (1))
-(while (True) (block
-(print (i))
-(= (i) (+ (i) (1)))
-))
-)",
+                |    (expression (= (i) (1)))
+                |    (while (True)
+                |        (block
+                |            (print (i))
+                |            (expression (= (i) (+ (i) (1))))
+                |        )
+                |    )
+                |)\n",
             ),
             (
                 "for ( ; true ; i = i + 1 ) print i;",
-                "(while (True) (block
-(print (i))
-(= (i) (+ (i) (1)))
-))",
+                "(while (True)
+                |    (block
+                |        (print (i))
+                |        (expression (= (i) (+ (i) (1))))
+                |    )
+                |)\n",
             ),
             (
                 "for ( i = 1 ; true ; ) print i;",
                 "(block
-(= (i) (1))
-(while (True) (print (i)))
-)",
+                |    (expression (= (i) (1)))
+                |    (while (True)
+                |        (print (i))
+                |    )
+                |)\n",
             ),
         ];
 
         for (src, expected_parse) in tests {
             reporter.reset();
+            let expected_parse = unindent_string(expected_parse);
 
             let tokens = scanner::scan_tokens(&reporter, src);
             let statements = parse(&reporter, tokens);
