@@ -3,6 +3,9 @@ use std::collections::linked_list::IntoIter;
 use std::collections::LinkedList;
 use std::iter::Peekable;
 
+const MAX_NUMBER_OF_ARGUMENTS: usize = 255;
+
+#[derive(Debug)]
 pub struct ParseError {
     message: String,
 }
@@ -370,7 +373,47 @@ impl<'k> Parser<'k> {
             let right = self.unary_expression(data)?;
             return Ok(expr::Expr::build_unary(operator, right));
         }
-        self.primary_expression(data)
+        self.call_expression(data)
+    }
+
+    fn call_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
+        let mut expr = self.primary_expression(data)?;
+
+        loop {
+            if self.consume_matching_token(&token::TokenType::LeftParen) {
+                expr = self.finish_call(data, expr)?;
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, data: &Data, callee: expr::Expr) -> Result<expr::Expr, ParseError> {
+        let mut arguments = Vec::new();
+        if !self.check_next_token(&token::TokenType::RightParen) {
+            loop {
+                if arguments.len() > MAX_NUMBER_OF_ARGUMENTS {
+                    // Just report the error
+                    let _ = self.add_diagnostic(&format!(
+                        "Cannot have more than {} arguments",
+                        MAX_NUMBER_OF_ARGUMENTS
+                    ));
+                }
+                arguments.push(self.expression(data)?);
+                if !self.check_next_token(&token::TokenType::Comma) {
+                    break;
+                }
+                self.advance();
+            }
+        }
+        self.consume_token(
+            &token::TokenType::RightParen,
+            "Expect ')' after function arguments",
+        )?;
+        let paren = self.take_current_token().unwrap();
+
+        Ok(expr::Expr::build_call(callee, paren, arguments))
     }
 
     fn primary_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
@@ -384,11 +427,11 @@ impl<'k> Parser<'k> {
 
         if self.consume_matching_token(&token::TokenType::LeftParen) {
             let expr = self.expression(data)?;
-            self.consume_token(&token::TokenType::RightParen, "expect ')' after expression")?;
+            self.consume_token(&token::TokenType::RightParen, "Expect ')' after expression")?;
             return Ok(expr::Expr::build_grouping(expr));
         }
 
-        self.add_diagnostic("Primary expression expected")
+        self.add_diagnostic("Expect expression")
     }
 
     fn consume_token(
@@ -517,53 +560,47 @@ mod test {
         let reporter = TestReporter::build();
 
         let tests = vec![
-            ("10 + 10;", "(expression (+ (10) (10)))\n"),
-            ("10 == 10;", "(expression (== (10) (10)))\n"),
-            ("\"a string\";", "(expression (\"a string\"))\n"),
-            (
-                "\"a string\" + 10;",
-                "(expression (+ (\"a string\") (10)))\n",
-            ),
-            (
-                "(\"a string\" + 10);",
-                "(expression (group (+ (\"a string\") (10))))\n",
-            ),
-            ("print 10 == 11;", "(print (== (10) (11)))\n"),
-            (" 10 > 11;", "(expression (> (10) (11)))\n"),
-            (" 10 * 11;", "(expression (* (10) (11)))\n"),
-            ("!!10;", "(expression (! (! (10))))\n"),
-            ("var a = 10;", "(var (a) (10))\n"),
-            ("var a;", "(var (a))\n"),
-            ("{ var a; } ", "(block\n    (var (a))\n)\n"),
-            ("a = 10 ;", "(expression (= (a) (10)))\n"),
+            ("10 + 10;", "(; (+ 10 10))\n"),
+            ("10 == 10;", "(; (== 10 10))\n"),
+            ("\"a string\";", "(; \"a string\")\n"),
+            ("\"a string\" + 10;", "(; (+ \"a string\" 10))\n"),
+            ("(\"a string\" + 10);", "(; (group (+ \"a string\" 10)))\n"),
+            ("print 10 == 11;", "(print (== 10 11))\n"),
+            (" 10 > 11;", "(; (> 10 11))\n"),
+            (" 10 * 11;", "(; (* 10 11))\n"),
+            ("!!10;", "(; (! (! 10)))\n"),
+            ("var a = 10;", "(var a = 10)\n"),
+            ("var a;", "(var a)\n"),
+            ("{ var a; } ", "(block\n    (var a)\n)\n"),
+            ("a = 10 ;", "(; (= a 10))\n"),
             (
                 "if ( a == 10 ) a = 10;",
-                "(if (== (a) (10))\n    (expression (= (a) (10)))\n)\n",
+                "(if (== a 10)\n    (; (= a 10))\n)\n",
             ),
             (
                 "if ( a == 10 ) a = 10 ; else b = 20;",
-                "(if (== (a) (10))\n    (expression (= (a) (10)))\n    (expression (= (b) (20)))\n)\n",
+                "(if-else (== a 10)\n    (; (= a 10))\n    (; (= b 20))\n)\n",
             ),
             (
                 "if ( a == 10 or b == 20 ) a = 10;",
-                "(if (or (== (a) (10)) (== (b) (20)))\n    (expression (= (a) (10)))\n)\n",
+                "(if (or (== a 10) (== b 20))\n    (; (= a 10))\n)\n",
             ),
             (
                 "if ( a == 10 and b == 20 ) a = 10;",
-                "(if (and (== (a) (10)) (== (b) (20)))\n    (expression (= (a) (10)))\n)\n",
+                "(if (and (== a 10) (== b 20))\n    (; (= a 10))\n)\n",
             ),
             (
                 "while ( a == true ) a = false;",
-                "(while (== (a) (True))\n    (expression (= (a) (False)))\n)\n",
+                "(while (== a true)\n    (; (= a false))\n)\n",
             ),
             (
                 "for ( var i = 1 ; i < 10 ; i = i + 1 ) print i;",
                 "(block
-                |    (var (i) (1))
-                |    (while (< (i) (10))
+                |    (var i = 1)
+                |    (while (< i 10)
                 |        (block
-                |            (print (i))
-                |            (expression (= (i) (+ (i) (1))))
+                |            (print i)
+                |            (; (= i (+ i 1)))
                 |        )
                 |    )
                 |)\n",
@@ -571,30 +608,30 @@ mod test {
             (
                 "for ( i = 1 ; true ; i = i + 1 ) print i;",
                 "(block
-                |    (expression (= (i) (1)))
-                |    (while (True)
+                |    (; (= i 1))
+                |    (while true
                 |        (block
-                |            (print (i))
-                |            (expression (= (i) (+ (i) (1))))
+                |            (print i)
+                |            (; (= i (+ i 1)))
                 |        )
                 |    )
                 |)\n",
             ),
             (
                 "for ( ; true ; i = i + 1 ) print i;",
-                "(while (True)
+                "(while true
                 |    (block
-                |        (print (i))
-                |        (expression (= (i) (+ (i) (1))))
+                |        (print i)
+                |        (; (= i (+ i 1)))
                 |    )
                 |)\n",
             ),
             (
                 "for ( i = 1 ; true ; ) print i;",
                 "(block
-                |    (expression (= (i) (1)))
-                |    (while (True)
-                |        (print (i))
+                |    (; (= i 1))
+                |    (while true
+                |        (print i)
                 |    )
                 |)\n",
             ),
@@ -634,8 +671,8 @@ mod test {
         let reporter = TestReporter::build();
 
         let tests = vec![
-            ("/ \"10\"", "Primary expression expected"),
-            ("( \"10\"", "expect ')' after expression"),
+            ("/ \"10\"", "Expect expression"),
+            ("( \"10\"", "Expect ')' after expression"),
             ("print 10", "Expect ';' after value"),
             ("\"10\"", "Expect ';' after expression"),
             ("\"10\" = 10 ;", "Invalid assignment target"),
@@ -662,6 +699,9 @@ mod test {
                 "for ( i = 1 ; ; i = i + 1  print i;",
                 "Expect ')' after 'for' clauses",
             ),
+            ("callee ( ;", "Expect expression"),
+            ("callee ( a ;", "Expect ')' after function arguments"),
+            ("callee ( a, ;", "Expect expression"),
         ];
 
         for (src, expected_message) in tests {

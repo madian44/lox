@@ -1,7 +1,56 @@
 use crate::{
-    environment, expr, location, lox_type, reporter, runtime_error::RuntimeError, stmt, token,
+    environment, expr, location, lox_type, native_functions, reporter, runtime_error::RuntimeError,
+    stmt, token,
 };
 use std::collections::LinkedList;
+use std::rc;
+
+trait Callable {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        paren: &expr::Expr,
+        arguments: Vec<lox_type::LoxType>,
+    ) -> Result<lox_type::LoxType, RuntimeError>;
+
+    fn call_native_function(
+        &self,
+        interpreter: &Interpreter,
+        paren: &expr::Expr,
+        callable: &rc::Rc<Box<dyn native_functions::Callable>>,
+        arguments: Vec<lox_type::LoxType>,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        if arguments.len() != callable.arity() {
+            interpreter.add_diagnostic(
+                paren,
+                format!(
+                    "Expected {} arguments but got {}",
+                    callable.arity(),
+                    arguments.len()
+                ),
+            )?;
+        }
+
+        callable.call(arguments)
+    }
+}
+
+impl Callable for lox_type::LoxType {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        paren: &expr::Expr,
+        arguments: Vec<lox_type::LoxType>,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        if let lox_type::LoxType::NativeFunction { name: _, callable } = self {
+            return self.call_native_function(interpreter, paren, callable, arguments);
+        }
+
+        Err(interpreter
+            .add_diagnostic(paren, "Can only call functions and classes".to_string())
+            .unwrap_err())
+    }
+}
 
 pub fn interpret(reporter: &dyn reporter::Reporter, statements: LinkedList<stmt::Stmt>) {
     let mut interpreter = Interpreter::build(reporter);
@@ -20,48 +69,33 @@ struct Interpreter<'k> {
 
 impl<'k> Interpreter<'k> {
     fn build(reporter: &'k dyn reporter::Reporter) -> Self {
-        Self {
+        let mut interpreter = Self {
             reporter,
             environment: environment::Environment::new(),
-        }
+        };
+        interpreter.environment.define(
+            "clock",
+            &lox_type::LoxType::NativeFunction {
+                name: "clock".to_string(),
+                callable: rc::Rc::new(Box::new(native_functions::Clock)),
+            },
+        );
+        interpreter
     }
 
     fn evaluate_stmt(&mut self, statement: &stmt::Stmt) -> Result<(), RuntimeError> {
         match statement {
             stmt::Stmt::Block { statements } => self.evaluate_stmt_block(statements),
-            stmt::Stmt::Expression { expression } => match self.evaluate_expr(expression) {
-                Ok(r) => {
-                    self.reporter.add_message(&format!("[interpreter] {r}"));
-                    Ok(())
-                }
-                Err(err) => Err(err),
-            },
+            stmt::Stmt::Expression { expression } => self.evaluate_stmt_expression(expression),
             stmt::Stmt::If {
                 condition,
                 then_branch,
                 else_branch,
             } => self.evaluate_stmt_if(condition, then_branch, else_branch),
-            stmt::Stmt::Print { value } => {
-                let result = self.evaluate_expr(value)?;
-                self.reporter.add_message(&format!("[print] {}", result));
-                Ok(())
-            }
+            stmt::Stmt::Print { value } => self.evaluate_stmt_print(value),
             stmt::Stmt::Var { name, initialiser } => self.evaluate_stmt_var(name, initialiser),
             stmt::Stmt::While { condition, body } => self.evaluate_stmt_while(condition, body),
         }
-    }
-
-    fn evaluate_stmt_var(
-        &mut self,
-        name: &token::Token,
-        initialiser: &Option<expr::Expr>,
-    ) -> Result<(), RuntimeError> {
-        let initial_value = match initialiser {
-            Some(expression) => self.evaluate_expr(expression)?,
-            None => lox_type::LoxType::Nil,
-        };
-        self.environment.define(&name.lexeme, &initial_value);
-        Ok(())
     }
 
     fn evaluate_stmt_block(
@@ -79,6 +113,16 @@ impl<'k> Interpreter<'k> {
         Ok(())
     }
 
+    fn evaluate_stmt_expression(&mut self, expr: &expr::Expr) -> Result<(), RuntimeError> {
+        match self.evaluate_expr(expr) {
+            Ok(r) => {
+                self.reporter.add_message(&format!("[interpreter] {r}"));
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     fn evaluate_stmt_if(
         &mut self,
         condition: &expr::Expr,
@@ -90,6 +134,25 @@ impl<'k> Interpreter<'k> {
         } else if let Some(else_branch) = else_branch {
             self.evaluate_stmt(else_branch)?;
         }
+        Ok(())
+    }
+
+    fn evaluate_stmt_print(&mut self, expr: &expr::Expr) -> Result<(), RuntimeError> {
+        let result = self.evaluate_expr(expr)?;
+        self.reporter.add_message(&format!("[print] {}", result));
+        Ok(())
+    }
+
+    fn evaluate_stmt_var(
+        &mut self,
+        name: &token::Token,
+        initialiser: &Option<expr::Expr>,
+    ) -> Result<(), RuntimeError> {
+        let initial_value = match initialiser {
+            Some(expression) => self.evaluate_expr(expression)?,
+            None => lox_type::LoxType::Nil,
+        };
+        self.environment.define(&name.lexeme, &initial_value);
         Ok(())
     }
 
@@ -117,6 +180,11 @@ impl<'k> Interpreter<'k> {
                 operator,
                 right,
             } => self.evaluate_expr_binary(expression, left, operator, right),
+            expr::Expr::Call {
+                callee,
+                paren,
+                arguments,
+            } => self.evaluate_expr_call(callee, paren, arguments),
             expr::Expr::Grouping { expression } => self.evaluate_expr(expression),
             expr::Expr::Literal { value } => self.evaluate_expr_literal(expression, value),
             expr::Expr::Logical {
@@ -131,33 +199,6 @@ impl<'k> Interpreter<'k> {
         }
     }
 
-    fn add_diagnostic(
-        &self,
-        expr: &expr::Expr,
-        message: String,
-    ) -> Result<lox_type::LoxType, RuntimeError> {
-        self.reporter
-            .add_diagnostic(get_start_location(expr), get_end_location(expr), &message);
-        Err(RuntimeError { message })
-    }
-
-    fn evaluate_expr_literal(
-        &self,
-        expr: &expr::Expr,
-        token: &token::Token,
-    ) -> Result<lox_type::LoxType, RuntimeError> {
-        match &token.literal {
-            Some(token::Literal::Number(number)) => Ok(lox_type::LoxType::Number(*number)),
-            Some(token::Literal::String(string)) => {
-                Ok(lox_type::LoxType::String(string.to_string()))
-            }
-            Some(token::Literal::True) => Ok(lox_type::LoxType::Boolean(true)),
-            Some(token::Literal::False) => Ok(lox_type::LoxType::Boolean(false)),
-            Some(token::Literal::Nil) => Ok(lox_type::LoxType::Nil),
-            _ => self.add_diagnostic(expr, "Unhandled literal".to_string()),
-        }
-    }
-
     fn evaluate_expr_assign(
         &mut self,
         expression: &expr::Expr,
@@ -169,23 +210,6 @@ impl<'k> Interpreter<'k> {
             self.add_diagnostic(expression, message.message)?;
         }
         Ok(value)
-    }
-
-    fn evaluate_expr_unary(
-        &mut self,
-        expression: &expr::Expr,
-        operator: &token::Token,
-        right: &expr::Expr,
-    ) -> Result<lox_type::LoxType, RuntimeError> {
-        let right = self.evaluate_expr(right)?;
-        match operator.token_type {
-            token::TokenType::Minus => {
-                let right = self.check_number_operand(expression, &right)?;
-                Ok(lox_type::LoxType::Number(-1.0 * right))
-            }
-            token::TokenType::Bang => Ok(lox_type::LoxType::Boolean(!is_truthy(&right))),
-            _ => self.add_diagnostic(expression, "Unsupported operand".to_string()),
-        }
     }
 
     fn evaluate_expr_binary(
@@ -237,14 +261,35 @@ impl<'k> Interpreter<'k> {
         }
     }
 
-    fn evaluate_expr_var(
-        &self,
-        expression: &expr::Expr,
-        name: &token::Token,
+    fn evaluate_expr_call(
+        &mut self,
+        callee: &expr::Expr,
+        _: &token::Token,
+        arguments: &Vec<expr::Expr>,
     ) -> Result<lox_type::LoxType, RuntimeError> {
-        match self.environment.get(name) {
-            Ok(value) => Ok(value),
-            Err(err) => self.add_diagnostic(expression, err.message),
+        let actual_callee = self.evaluate_expr(callee)?;
+
+        let mut args = Vec::new();
+        for expr in arguments {
+            args.push(self.evaluate_expr(expr)?);
+        }
+        actual_callee.call(self, callee, args)
+    }
+
+    fn evaluate_expr_literal(
+        &self,
+        expr: &expr::Expr,
+        token: &token::Token,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        match &token.literal {
+            Some(token::Literal::Number(number)) => Ok(lox_type::LoxType::Number(*number)),
+            Some(token::Literal::String(string)) => {
+                Ok(lox_type::LoxType::String(string.to_string()))
+            }
+            Some(token::Literal::True) => Ok(lox_type::LoxType::Boolean(true)),
+            Some(token::Literal::False) => Ok(lox_type::LoxType::Boolean(false)),
+            Some(token::Literal::Nil) => Ok(lox_type::LoxType::Nil),
+            _ => self.add_diagnostic(expr, "Unhandled literal".to_string()),
         }
     }
 
@@ -264,6 +309,44 @@ impl<'k> Interpreter<'k> {
         }
 
         self.evaluate_expr(right)
+    }
+
+    fn evaluate_expr_unary(
+        &mut self,
+        expression: &expr::Expr,
+        operator: &token::Token,
+        right: &expr::Expr,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        let right = self.evaluate_expr(right)?;
+        match operator.token_type {
+            token::TokenType::Minus => {
+                let right = self.check_number_operand(expression, &right)?;
+                Ok(lox_type::LoxType::Number(-1.0 * right))
+            }
+            token::TokenType::Bang => Ok(lox_type::LoxType::Boolean(!is_truthy(&right))),
+            _ => self.add_diagnostic(expression, "Unsupported operand".to_string()),
+        }
+    }
+
+    fn evaluate_expr_var(
+        &self,
+        expression: &expr::Expr,
+        name: &token::Token,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        match self.environment.get(name) {
+            Ok(value) => Ok(value),
+            Err(err) => self.add_diagnostic(expression, err.message),
+        }
+    }
+
+    fn add_diagnostic(
+        &self,
+        expr: &expr::Expr,
+        message: String,
+    ) -> Result<lox_type::LoxType, RuntimeError> {
+        self.reporter
+            .add_diagnostic(get_start_location(expr), get_end_location(expr), &message);
+        Err(RuntimeError { message })
     }
 
     fn check_number_operand(
@@ -337,6 +420,11 @@ fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
             operator: _,
             right: _,
         } => get_start_location(left),
+        expr::Expr::Call {
+            callee,
+            paren: _,
+            arguments: _,
+        } => get_start_location(callee),
         expr::Expr::Grouping { expression } => get_start_location(expression),
         expr::Expr::Literal { value } => &value.start,
         expr::Expr::Logical {
@@ -357,6 +445,11 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
             operator: _,
             right,
         } => get_end_location(right),
+        expr::Expr::Call {
+            callee: _,
+            paren,
+            arguments: _,
+        } => &paren.end,
         expr::Expr::Grouping { expression } => get_end_location(expression),
         expr::Expr::Literal { value } => &value.end,
         expr::Expr::Logical {

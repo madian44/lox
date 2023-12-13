@@ -6,6 +6,7 @@ use lox::Reporter;
 fn test_statements() {
     let mut reporter = common::TestReporter::build();
     let tests = vec![
+        // ("var a = clock(); print a;", "[print] 10"),
         ("\"hello,\" + \" world\";", "[interpreter] \"hello, world\""),
         ("10 + 10;", "[interpreter] 20"),
         ("10 - 5;", "[interpreter] 5"),
@@ -123,6 +124,20 @@ fn test_failures() {
                     line_offset: 7,
                 },
                 message: "Undefined variable 'a'".to_string(),
+            },
+        ),
+        (
+            "\"totally not a function\"();",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 0,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 24,
+                },
+                message: "Can only call functions and classes".to_string(),
             },
         ),
     ];

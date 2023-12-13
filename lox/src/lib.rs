@@ -4,6 +4,7 @@ mod expr;
 mod interpreter;
 mod location;
 mod lox_type;
+mod native_functions;
 mod parser;
 mod reporter;
 mod runtime_error;
