@@ -85,7 +85,7 @@ impl<'a> Keywords<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     String(String),
     Number(f64),
@@ -103,7 +103,7 @@ pub fn get_keyword_literal(token_type: &TokenType) -> Option<Literal> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,

@@ -1,4 +1,4 @@
-use crate::{lox_type, runtime_error::RuntimeError, token};
+use crate::{interpreter::lox_type, interpreter::unwind, token};
 use std::collections::{HashMap, LinkedList};
 
 pub struct Frame {
@@ -12,8 +12,8 @@ impl Frame {
         }
     }
 
-    fn define(&mut self, name: &str, value: &lox_type::LoxType) {
-        self.values.insert(name.to_string(), value.clone());
+    fn define(&mut self, name: &str, value: lox_type::LoxType) {
+        self.values.insert(name.to_string(), value);
     }
 
     fn get(&self, name: &token::Token) -> Option<lox_type::LoxType> {
@@ -49,42 +49,44 @@ impl Environment {
         self.frames.pop_front();
     }
 
-    pub fn define(&mut self, name: &str, value: &lox_type::LoxType) {
+    pub fn define(&mut self, name: &str, value: lox_type::LoxType) {
         self.frames.front_mut().unwrap().define(name, value)
     }
 
     pub fn assign(
         &mut self,
         name: &token::Token,
-        value: &lox_type::LoxType,
-    ) -> Result<(), RuntimeError> {
+        value: lox_type::LoxType,
+    ) -> Result<(), unwind::Unwind> {
         for frame in &mut self.frames {
-            if frame.assign(name, value) {
+            if frame.assign(name, &value) {
                 return Ok(());
             }
         }
-        Err(RuntimeError {
-            message: format!("Undefined variable '{}'", name.lexeme),
-        })
+        Err(unwind::Unwind::WithError(format!(
+            "Undefined variable '{}'",
+            name.lexeme
+        )))
     }
 
-    pub fn get(&self, name: &token::Token) -> Result<lox_type::LoxType, RuntimeError> {
+    pub fn get(&self, name: &token::Token) -> Result<lox_type::LoxType, unwind::Unwind> {
         for frame in &self.frames {
             if let Some(value) = frame.get(name) {
                 return Ok(value);
             }
         }
 
-        Err(RuntimeError {
-            message: format!("Undefined variable '{}'", name.lexeme),
-        })
+        Err(unwind::Unwind::WithError(format!(
+            "Undefined variable '{}'",
+            name.lexeme
+        )))
     }
 }
 #[cfg(test)]
 mod test {
 
     use super::*;
-    use crate::{location, lox_type, token};
+    use crate::{interpreter::lox_type, location, token};
 
     #[test]
     fn test_environment() {
@@ -101,30 +103,30 @@ mod test {
         let result = environment.get(&a_token);
         assert_eq!(
             result,
-            Err(RuntimeError {
-                message: "Undefined variable 'a'".to_string()
-            })
+            Err(unwind::Unwind::WithError(
+                "Undefined variable 'a'".to_string()
+            ))
         );
 
         let a_initial_value = lox_type::LoxType::String("a value".to_string());
-        let result = environment.assign(&a_token, &a_initial_value);
+        let result = environment.assign(&a_token, a_initial_value.clone());
         assert_eq!(
             result,
-            Err(RuntimeError {
-                message: "Undefined variable 'a'".to_string()
-            })
+            Err(unwind::Unwind::WithError(
+                "Undefined variable 'a'".to_string()
+            ))
         );
 
-        environment.define(&a_token.lexeme, &a_initial_value);
+        environment.define(&a_token.lexeme, a_initial_value.clone());
         let result = environment.get(&a_token);
         assert_eq!(result, Ok(a_initial_value));
 
         let a_updated_value = lox_type::LoxType::String("a value (updated)".to_string());
-        let result = environment.assign(&a_token, &a_updated_value);
+        let result = environment.assign(&a_token, a_updated_value.clone());
         assert_eq!(result, Ok(()));
 
         let result = environment.get(&a_token);
-        assert_eq!(result, Ok(a_updated_value));
+        assert_eq!(result, Ok(a_updated_value.clone()));
     }
 
     #[test]
@@ -158,16 +160,16 @@ mod test {
         let a_initial_value = lox_type::LoxType::String("a value".to_string());
         let b_initial_value = lox_type::LoxType::String("b value".to_string());
         let c_initial_value = lox_type::LoxType::String("c value".to_string());
-        environment.define(&a_token.lexeme, &a_initial_value);
-        environment.define(&b_token.lexeme, &b_initial_value);
+        environment.define(&a_token.lexeme, a_initial_value.clone());
+        environment.define(&b_token.lexeme, b_initial_value.clone());
 
         environment.new_frame();
         let a_nested_value = lox_type::LoxType::String("a value (nested)".to_string());
         let b_updated_value = lox_type::LoxType::String("b value (updated)".to_string());
-        environment.define(&a_token.lexeme, &a_nested_value);
-        environment.define(&c_token.lexeme, &c_initial_value);
+        environment.define(&a_token.lexeme, a_nested_value.clone());
+        environment.define(&c_token.lexeme, c_initial_value.clone());
 
-        let result = environment.assign(&b_token, &b_updated_value);
+        let result = environment.assign(&b_token, b_updated_value.clone());
         assert_eq!(result, Ok(()));
 
         let result = environment.get(&a_token);
@@ -190,9 +192,9 @@ mod test {
         let result = environment.get(&c_token);
         assert_eq!(
             result,
-            Err(RuntimeError {
-                message: "Undefined variable 'c'".to_string()
-            })
+            Err(unwind::Unwind::WithError(
+                "Undefined variable 'c'".to_string()
+            ))
         );
     }
 }

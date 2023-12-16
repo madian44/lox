@@ -1,6 +1,21 @@
-use crate::native_functions;
+use crate::{interpreter::environment, interpreter::lox_type, interpreter::unwind, reporter};
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
+
+pub trait Callable: Debug {
+    fn call(
+        &self,
+        reporter: &dyn reporter::Reporter,
+        environment: &mut environment::Environment,
+        arguments: Vec<lox_type::LoxType>,
+    ) -> Result<lox_type::LoxType, unwind::Unwind>;
+    fn arity(&self) -> usize;
+}
+
+pub trait NativeCallable: Debug {
+    fn call(&self, arguments: Vec<lox_type::LoxType>) -> Result<lox_type::LoxType, unwind::Unwind>;
+    fn arity(&self) -> usize;
+}
 
 #[derive(Debug, Clone)]
 pub enum LoxType {
@@ -8,9 +23,13 @@ pub enum LoxType {
     Boolean(bool),
     Number(f64),
     String(String),
+    Function {
+        name: String,
+        callable: Rc<Box<dyn Callable>>,
+    },
     NativeFunction {
         name: String,
-        callable: Rc<Box<dyn native_functions::Callable>>,
+        callable: Rc<Box<dyn NativeCallable>>,
     },
 }
 
@@ -34,6 +53,20 @@ impl PartialEq for LoxType {
             }
             LoxType::String(value) => {
                 if let LoxType::String(other) = other {
+                    other == value
+                } else {
+                    false
+                }
+            }
+            LoxType::Function {
+                name: value,
+                callable: _,
+            } => {
+                if let LoxType::Function {
+                    name: other,
+                    callable: _,
+                } = other
+                {
                     other == value
                 } else {
                     false
@@ -64,7 +97,8 @@ impl Display for LoxType {
             LoxType::Boolean(bool) => write!(f, "{bool}"),
             LoxType::Number(number) => write!(f, "{number}"),
             LoxType::String(string) => write!(f, "\"{string}\""),
-            LoxType::NativeFunction { name, callable: _ } => write!(f, "\"fun {name}\""),
+            LoxType::Function { name, callable: _ } => write!(f, "\"fun {name}\""),
+            LoxType::NativeFunction { name, callable: _ } => write!(f, "\"native fun {name}\""),
         }
     }
 }

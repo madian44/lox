@@ -19,12 +19,16 @@ mod internal {
         match stmt {
             stmt::Stmt::Block { statements } => print_stmt_block(indent, statements),
             stmt::Stmt::Expression { expression } => print_stmt_expr(indent, expression),
+            stmt::Stmt::Function { name, params, body } => {
+                print_stmt_function(indent, name, params, body)
+            }
             stmt::Stmt::If {
                 condition,
                 then_branch,
                 else_branch,
             } => print_stmt_if(indent, condition, then_branch, else_branch),
             stmt::Stmt::Print { value } => print_stmt_print(indent, value),
+            stmt::Stmt::Return { keyword, value } => print_stmt_return(indent, keyword, value),
             stmt::Stmt::Var { name, initialiser } => print_stmt_variable(indent, name, initialiser),
             stmt::Stmt::While { condition, body } => print_stmt_while(indent, condition, body),
         }
@@ -47,6 +51,30 @@ mod internal {
             indent_string(indent),
             parenthesize(";", vec![expr])
         )
+    }
+
+    fn print_stmt_function(
+        indent: usize,
+        name: &token::Token,
+        params: &LinkedList<token::Token>,
+        body: &LinkedList<stmt::Stmt>,
+    ) -> String {
+        let mut result = format!(
+            "{}(fun {}({})\n",
+            indent_string(indent),
+            name.lexeme,
+            params
+                .iter()
+                .map(|t| t.lexeme.clone())
+                .collect::<Vec<String>>()
+                .as_slice()
+                .join(" ")
+        );
+        for statement in body {
+            result.push_str(&print_stmt(indent + 1, statement));
+        }
+        result.push_str(&format!("{})\n", indent_string(indent)));
+        result
     }
 
     fn print_stmt_if(
@@ -76,6 +104,22 @@ mod internal {
             "{}{}\n",
             indent_string(indent),
             parenthesize("print", vec![expr])
+        )
+    }
+
+    fn print_stmt_return(
+        indent: usize,
+        _keyword: &token::Token,
+        value: &Option<expr::Expr>,
+    ) -> String {
+        format!(
+            "{}{}",
+            indent_string(indent),
+            if let Some(value) = value {
+                parenthesize("return", vec![value])
+            } else {
+                "(return)".to_string()
+            }
         )
     }
 
@@ -206,80 +250,5 @@ mod internal {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::{parser, reporter::test::TestReporter, scanner, Reporter};
-    use std::collections::LinkedList;
-
-    fn unindent_string(source: &str) -> String {
-        let re = regex::Regex::new(r"\n\s+[|]").unwrap();
-        re.replace_all(source, "\n").to_string()
-    }
-
-    fn parse_lox(source: &str) -> LinkedList<stmt::Stmt> {
-        let reporter = TestReporter::build();
-
-        let tokens = scanner::scan_tokens(&reporter, source);
-        if reporter.has_diagnostics() {
-            reporter.print_contents();
-            panic!("Unexpected errors scanning {}", source);
-        }
-        let statements = parser::parse(&reporter, tokens);
-        if reporter.has_diagnostics() {
-            reporter.print_contents();
-            panic!("Unexpected errors parsing {}", source);
-        }
-        statements
-    }
-
-    #[test]
-    fn tests() {
-        let tests = vec![
-            (
-                "print -123 * (45.67);",
-                "(print (* (- 123) (group 45.67)))\n",
-            ),
-            ("true == true;", "(; (== true true))\n"),
-            ("var a = true;", "(var a = true)\n"),
-            ("var b;", "(var b)\n"),
-            (
-                "{ var a = Nil ; a = false; }",
-                "(block
-                |    (var a = Nil)
-                |    (; (= a false))
-                |)\n",
-            ),
-            (
-                "if ( true or \"hello, world\" ) print \"then branch\" ; else print \"else branch\" ;",
-                "(if-else (or true \"hello, world\")
-                |    (print \"then branch\")
-                |    (print \"else branch\")
-                |)\n",
-            ),
-            (
-                "while (true) print \"body\" ;",
-                "(while true
-                |    (print \"body\")
-                |)\n"
-            ),
-            (
-                "callee();",
-                "(; (call callee))\n"
-            ),
-            ("callee(a, b);", "(; (call callee a b))\n"),
-        ];
-
-        for (source, expected_output) in tests {
-            let expected_output = unindent_string(expected_output);
-            let statements = parse_lox(source);
-            let mut output = String::new();
-            for statement in statements {
-                output.push_str(&print_stmt(&statement));
-            }
-            assert_eq!(
-                output, expected_output,
-                "Unexpected output for '{}'",
-                source
-            );
-        }
-    }
+    // this is used in parser and interpreter tests
 }

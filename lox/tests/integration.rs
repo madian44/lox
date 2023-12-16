@@ -36,6 +36,46 @@ fn test_statements() {
         ("((10 - 5) + 1) / (2 * 3);", "[interpreter] 1"),
         ("print ((10 - 5) + 1) / (2 * 3);", "[print] 1"),
         ("var a = 1 ; { a = 2; print a;}", "[print] 2"),
+        (
+            "fun fib(n) {
+    if( n<= 1) return n;
+    return fib(n-2) + fib(n-1);
+    }
+    print fib(0);",
+            "[print] 0",
+        ),
+        (
+            "fun fib(n) {
+    if( n<= 1) return n;
+    return fib(n-2) + fib(n-1);
+    }
+    print fib(1);",
+            "[print] 1",
+        ),
+        (
+            "fun fib(n) {
+    if( n<= 1) return n;
+    return fib(n-2) + fib(n-1);
+    }
+    print fib(2);",
+            "[print] 1",
+        ),
+        (
+            "fun fib(n) {
+    if( n<= 1) return n;
+    return fib(n-2) + fib(n-1);
+    }
+    print fib(3);",
+            "[print] 2",
+        ),
+        (
+            "fun fib(n) {
+    if( n<= 1) return n;
+    return fib(n-2) + fib(n-1);
+    }
+    print fib(6);",
+            "[print] 8",
+        ),
     ];
 
     for (source, expected_message) in tests {

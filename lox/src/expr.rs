@@ -1,6 +1,6 @@
 use crate::token;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Assign {
         name: token::Token,

@@ -106,7 +106,9 @@ impl<'k> Parser<'k> {
     }
 
     fn declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        let result = if self.consume_matching_token(&token::TokenType::Var) {
+        let result = if self.consume_matching_token(&token::TokenType::Fun) {
+            self.function_declaration(data, "function")
+        } else if self.consume_matching_token(&token::TokenType::Var) {
             self.variable_declaration(data)
         } else {
             self.statement(data)
@@ -115,6 +117,58 @@ impl<'k> Parser<'k> {
             self.synchronize();
         }
         result
+    }
+
+    fn function_declaration(&mut self, data: &Data, kind: &str) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(
+            &token::TokenType::Identifier,
+            &format!("Expect {} name", kind),
+        )?;
+        let name = self.take_current_token()?;
+
+        self.consume_token(
+            &token::TokenType::LeftParen,
+            &format!("Expect '(' after {} name", kind),
+        )?;
+
+        let mut params = LinkedList::new();
+        if !self.check_next_token(&token::TokenType::RightParen) {
+            loop {
+                if params.len() > MAX_NUMBER_OF_ARGUMENTS {
+                    // Just report the error
+                    let _ = self.add_diagnostic(&format!(
+                        "Cannot have more than {} parameters",
+                        MAX_NUMBER_OF_ARGUMENTS
+                    ));
+                }
+
+                self.consume_token(&token::TokenType::Identifier, "Expect parameter name")?;
+                params.push_back(self.take_current_token()?);
+
+                if !self.consume_matching_token(&token::TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume_token(
+            &token::TokenType::RightParen,
+            &format!("Expect ')' after {} parameters", kind),
+        )?;
+        self.consume_token(
+            &token::TokenType::LeftBrace,
+            &format!("Expect '{{' before {} body", kind),
+        )?;
+        if let stmt::Stmt::Block { statements } = self.block_statement(data)? {
+            Ok(stmt::Stmt::Function {
+                name,
+                params,
+                body: statements,
+            })
+        } else {
+            Err(ParseError {
+                message: format!("Expect a block {} body", kind),
+            })
+        }
     }
 
     fn variable_declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
@@ -137,6 +191,8 @@ impl<'k> Parser<'k> {
             self.if_statement(data)
         } else if self.consume_matching_token(&token::TokenType::Print) {
             self.print_statement(data)
+        } else if self.consume_matching_token(&token::TokenType::Return) {
+            self.return_statement(data)
         } else if self.consume_matching_token(&token::TokenType::While) {
             self.while_statement(data)
         } else if self.consume_matching_token(&token::TokenType::LeftBrace) {
@@ -171,6 +227,17 @@ impl<'k> Parser<'k> {
         let value = self.expression(data)?;
         self.consume_semicolon("Expect ';' after value")?;
         Ok(stmt::Stmt::Print { value })
+    }
+
+    fn return_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        let keyword = self.take_current_token()?;
+        let value = if !self.check_next_token(&token::TokenType::Semicolon) {
+            Some(self.expression(data)?)
+        } else {
+            None
+        };
+        self.consume_semicolon("Expect ';' after return value")?;
+        Ok(stmt::Stmt::Return { keyword, value })
     }
 
     fn while_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
@@ -635,6 +702,20 @@ mod test {
                 |    )
                 |)\n",
             ),
+            (
+                "fun callee(a, b) { print a; print b ; }",
+                "(fun callee(a b)
+                |    (print a)
+                |    (print b)
+                |)\n",
+            ),
+            (
+                "fun callee() { print c; print d ; }",
+                "(fun callee()
+                |    (print c)
+                |    (print d)
+                |)\n",
+            ),
         ];
 
         for (src, expected_parse) in tests {
@@ -702,6 +783,14 @@ mod test {
             ("callee ( ;", "Expect expression"),
             ("callee ( a ;", "Expect ')' after function arguments"),
             ("callee ( a, ;", "Expect expression"),
+            ("fun ( ;", "Expect function name"),
+            ("fun callee a ;", "Expect '(' after function name"),
+            ("fun callee ( 10 ;", "Expect parameter name"),
+            ("fun callee ( a ;", "Expect ')' after function parameters"),
+            (
+                "fun callee ( a ) print a;",
+                "Expect '{' before function body",
+            ),
         ];
 
         for (src, expected_message) in tests {
