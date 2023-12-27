@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0
+
+### Added
+- Implementation of Functions chapter.
+
 ## 0.9.0
 
 ### Added

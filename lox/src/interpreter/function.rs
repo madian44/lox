@@ -7,6 +7,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::zip;
 
 pub struct Function {
+    closure: environment::Environment,
     name: token::Token,
     params: LinkedList<token::Token>,
     body: LinkedList<stmt::Stmt>,
@@ -14,11 +15,17 @@ pub struct Function {
 
 impl Function {
     pub fn build(
+        closure: &environment::Environment,
         name: token::Token,
         params: LinkedList<token::Token>,
         body: LinkedList<stmt::Stmt>,
     ) -> Self {
-        Self { name, params, body }
+        Self {
+            closure: closure.clone(),
+            name,
+            params,
+            body,
+        }
     }
 }
 
@@ -42,18 +49,16 @@ impl lox_type::Callable for Function {
     fn call(
         &self,
         reporter: &dyn reporter::Reporter,
-        environment: &mut environment::Environment,
         arguments: Vec<lox_type::LoxType>,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
-        environment.new_frame();
-        zip(&self.params, arguments).for_each(|(k, v)| environment.define(&k.lexeme, v));
+        let closure = self.closure.clone();
+        let mut environment = environment::Environment::new_with_enclosing(&closure);
 
-        if let Err(err) = interpret_with_environment(reporter, environment, &self.body) {
-            environment.pop_frame();
-            return Err(err);
+        for (k, v) in zip(&self.params, arguments) {
+            environment.define(&k.lexeme, v);
         }
 
-        environment.pop_frame();
+        interpret_with_environment(reporter, environment, &self.body)?;
 
         Ok(lox_type::LoxType::Nil)
     }

@@ -60,3 +60,4 @@ Typescript `vsce` extension.
  * Chapter 7 Evaluating Expressions
  * Chapter 8 Statements and State
  * Chapter 9 Control Flow
+ * Chapter 10 Functions

@@ -1,56 +1,83 @@
 use crate::{interpreter::lox_type, interpreter::unwind, token};
-use std::collections::{HashMap, LinkedList};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
-pub struct Frame {
+struct Frame {
+    enclosing: Option<Rc<RefCell<Frame>>>,
     values: HashMap<String, lox_type::LoxType>,
 }
 
 impl Frame {
-    fn new() -> Self {
-        Self {
-            values: HashMap::new(),
-        }
-    }
-
     fn define(&mut self, name: &str, value: lox_type::LoxType) {
         self.values.insert(name.to_string(), value);
     }
 
-    fn get(&self, name: &token::Token) -> Option<lox_type::LoxType> {
-        self.values.get(&name.lexeme).cloned()
-    }
-
-    fn assign(&mut self, name: &token::Token, value: &lox_type::LoxType) -> bool {
+    fn assign(
+        &mut self,
+        name: &token::Token,
+        value: lox_type::LoxType,
+    ) -> Result<(), unwind::Unwind> {
         if self.values.contains_key(&name.lexeme) {
             self.values.insert(name.lexeme.clone(), value.clone());
-            true
+            Ok(())
+        } else if self.enclosing.is_some() {
+            let enclosing = self.enclosing.clone().unwrap();
+            let mut enclosing = enclosing.borrow_mut();
+            enclosing.assign(name, value)
         } else {
-            false
+            Err(unwind::Unwind::WithError(format!(
+                "Undefined variable '{}'",
+                name.lexeme
+            )))
+        }
+    }
+
+    pub fn get(&self, name: &token::Token) -> Result<lox_type::LoxType, unwind::Unwind> {
+        if self.values.contains_key(&name.lexeme) {
+            Ok(self.values.get(&name.lexeme).cloned().unwrap())
+        } else if self.enclosing.is_some() {
+            let enclosing = self.enclosing.clone().unwrap();
+            let enclosing = enclosing.borrow();
+            enclosing.get(name)
+        } else {
+            Err(unwind::Unwind::WithError(format!(
+                "Undefined variable '{}'",
+                name.lexeme
+            )))
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Environment {
-    frames: LinkedList<Frame>,
+    frame: Rc<RefCell<Frame>>,
 }
 
 impl Environment {
     pub fn new() -> Self {
-        let mut frames = LinkedList::new();
-        frames.push_front(Frame::new());
-        Self { frames }
+        let frame = Frame {
+            enclosing: None,
+            values: HashMap::new(),
+        };
+
+        Self {
+            frame: Rc::new(RefCell::new(frame)),
+        }
     }
 
-    pub fn new_frame(&mut self) {
-        self.frames.push_front(Frame::new());
-    }
-
-    pub fn pop_frame(&mut self) {
-        self.frames.pop_front();
+    pub fn new_with_enclosing(enclosing: &Environment) -> Self {
+        let frame = Frame {
+            enclosing: Some(enclosing.frame.clone()),
+            values: HashMap::new(),
+        };
+        Self {
+            frame: Rc::new(RefCell::new(frame)),
+        }
     }
 
     pub fn define(&mut self, name: &str, value: lox_type::LoxType) {
-        self.frames.front_mut().unwrap().define(name, value)
+        self.frame.borrow_mut().define(name, value)
     }
 
     pub fn assign(
@@ -58,35 +85,18 @@ impl Environment {
         name: &token::Token,
         value: lox_type::LoxType,
     ) -> Result<(), unwind::Unwind> {
-        for frame in &mut self.frames {
-            if frame.assign(name, &value) {
-                return Ok(());
-            }
-        }
-        Err(unwind::Unwind::WithError(format!(
-            "Undefined variable '{}'",
-            name.lexeme
-        )))
+        self.frame.borrow_mut().assign(name, value)
     }
 
     pub fn get(&self, name: &token::Token) -> Result<lox_type::LoxType, unwind::Unwind> {
-        for frame in &self.frames {
-            if let Some(value) = frame.get(name) {
-                return Ok(value);
-            }
-        }
-
-        Err(unwind::Unwind::WithError(format!(
-            "Undefined variable '{}'",
-            name.lexeme
-        )))
+        self.frame.borrow().get(name)
     }
 }
+
 #[cfg(test)]
 mod test {
-
     use super::*;
-    use crate::{interpreter::lox_type, location, token};
+    use crate::{location, token};
 
     #[test]
     fn test_environment() {
@@ -107,6 +117,11 @@ mod test {
                 "Undefined variable 'a'".to_string()
             ))
         );
+        assert_eq!(
+            Rc::strong_count(&environment.frame),
+            1,
+            "Unexpected ref count"
+        );
 
         let a_initial_value = lox_type::LoxType::String("a value".to_string());
         let result = environment.assign(&a_token, a_initial_value.clone());
@@ -116,22 +131,42 @@ mod test {
                 "Undefined variable 'a'".to_string()
             ))
         );
+        assert_eq!(
+            Rc::strong_count(&environment.frame),
+            1,
+            "Unexpected ref count"
+        );
 
         environment.define(&a_token.lexeme, a_initial_value.clone());
         let result = environment.get(&a_token);
         assert_eq!(result, Ok(a_initial_value));
+        assert_eq!(
+            Rc::strong_count(&environment.frame),
+            1,
+            "Unexpected ref count"
+        );
 
         let a_updated_value = lox_type::LoxType::String("a value (updated)".to_string());
         let result = environment.assign(&a_token, a_updated_value.clone());
         assert_eq!(result, Ok(()));
+        assert_eq!(
+            Rc::strong_count(&environment.frame),
+            1,
+            "Unexpected ref count"
+        );
 
         let result = environment.get(&a_token);
         assert_eq!(result, Ok(a_updated_value.clone()));
+        assert_eq!(
+            Rc::strong_count(&environment.frame),
+            1,
+            "Unexpected ref count"
+        );
     }
 
     #[test]
     fn test_nested_environment() {
-        let mut environment = Environment::new();
+        let mut original_environment = Environment::new();
         let blank_location = location::FileLocation::new(0, 0);
         let a_token = token::Token::new(
             token::TokenType::Identifier,
@@ -160,36 +195,56 @@ mod test {
         let a_initial_value = lox_type::LoxType::String("a value".to_string());
         let b_initial_value = lox_type::LoxType::String("b value".to_string());
         let c_initial_value = lox_type::LoxType::String("c value".to_string());
-        environment.define(&a_token.lexeme, a_initial_value.clone());
-        environment.define(&b_token.lexeme, b_initial_value.clone());
+        original_environment.define(&a_token.lexeme, a_initial_value.clone());
+        original_environment.define(&b_token.lexeme, b_initial_value.clone());
 
-        environment.new_frame();
         let a_nested_value = lox_type::LoxType::String("a value (nested)".to_string());
         let b_updated_value = lox_type::LoxType::String("b value (updated)".to_string());
-        environment.define(&a_token.lexeme, a_nested_value.clone());
-        environment.define(&c_token.lexeme, c_initial_value.clone());
 
-        let result = environment.assign(&b_token, b_updated_value.clone());
-        assert_eq!(result, Ok(()));
+        assert_eq!(
+            Rc::strong_count(&original_environment.frame),
+            1,
+            "Unexpected ref count before block"
+        );
 
-        let result = environment.get(&a_token);
-        assert_eq!(result, Ok(a_nested_value));
+        {
+            let mut nested_environment = Environment::new_with_enclosing(&original_environment);
 
-        let result = environment.get(&b_token);
-        assert_eq!(result, Ok(b_updated_value.clone()));
+            assert_eq!(
+                Rc::strong_count(&original_environment.frame),
+                2,
+                "Unexpected ref count at start of block"
+            );
 
-        let result = environment.get(&c_token);
-        assert_eq!(result, Ok(c_initial_value));
+            nested_environment.define(&a_token.lexeme, a_nested_value.clone());
+            nested_environment.define(&c_token.lexeme, c_initial_value.clone());
 
-        environment.pop_frame();
+            let result = nested_environment.assign(&b_token, b_updated_value.clone());
+            assert_eq!(result, Ok(()));
 
-        let result = environment.get(&a_token);
+            let result = nested_environment.get(&a_token);
+            assert_eq!(result, Ok(a_nested_value));
+
+            let result = nested_environment.get(&b_token);
+            assert_eq!(result, Ok(b_updated_value.clone()));
+
+            let result = nested_environment.get(&c_token);
+            assert_eq!(result, Ok(c_initial_value));
+        }
+
+        assert_eq!(
+            Rc::strong_count(&original_environment.frame),
+            1,
+            "Unexpected ref count after block"
+        );
+
+        let result = original_environment.get(&a_token);
         assert_eq!(result, Ok(a_initial_value));
 
-        let result = environment.get(&b_token);
+        let result = original_environment.get(&b_token);
         assert_eq!(result, Ok(b_updated_value.clone()));
 
-        let result = environment.get(&c_token);
+        let result = original_environment.get(&c_token);
         assert_eq!(
             result,
             Err(unwind::Unwind::WithError(

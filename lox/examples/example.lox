@@ -31,3 +31,18 @@ for( var i = 10 ; i < 15 ; i = i + 1 ) {
 
 print i;
 print "for loop completed";
+
+fun makeCounter(n) {
+    var i = n;
+
+    fun count() {
+        i = i + 1;
+        print i;
+    }
+
+    return count;
+}
+
+var counter = makeCounter(3);
+counter(); // [print] 4
+counter(); // [print] 5

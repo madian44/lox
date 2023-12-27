@@ -12,18 +12,18 @@ pub fn interpret(reporter: &dyn reporter::Reporter, statements: LinkedList<stmt:
     let mut environment = environment::Environment::new();
     Interpreter::define_native_functions(&mut environment);
 
-    let _ = interpret_with_environment(reporter, &mut environment, &statements);
+    let _ = interpret_with_environment(reporter, environment, &statements);
 }
 
 fn interpret_with_environment(
     reporter: &dyn reporter::Reporter,
-    environment: &mut environment::Environment,
+    mut environment: environment::Environment,
     statements: &LinkedList<stmt::Stmt>,
 ) -> Result<(), unwind::Unwind> {
-    let mut interpreter = Interpreter::build(reporter);
+    let interpreter = Interpreter::build(reporter);
 
     for statement in statements {
-        match interpreter.evaluate_stmt(environment, statement) {
+        match interpreter.evaluate_stmt(&mut environment, statement) {
             Err(unwind::Unwind::WithError(message)) => {
                 reporter.add_message(&message);
                 return Err(unwind::Unwind::WithError(message));
@@ -39,7 +39,6 @@ fn interpret_with_environment(
 
 struct Interpreter<'r> {
     reporter: &'r dyn reporter::Reporter,
-    //    environment: environment::Environment,
 }
 
 impl<'r> Interpreter<'r> {
@@ -58,7 +57,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         statement: &stmt::Stmt,
     ) -> Result<(), unwind::Unwind> {
@@ -89,23 +88,19 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt_block(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         statements: &LinkedList<stmt::Stmt>,
     ) -> Result<(), unwind::Unwind> {
-        environment.new_frame();
+        let mut environment = environment::Environment::new_with_enclosing(environment);
         for statement in statements {
-            if let Err(err) = self.evaluate_stmt(environment, statement) {
-                environment.pop_frame();
-                return Err(err);
-            }
+            self.evaluate_stmt(&mut environment, statement)?;
         }
-        environment.pop_frame();
         Ok(())
     }
 
     fn evaluate_stmt_expression(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         expr: &expr::Expr,
     ) -> Result<(), unwind::Unwind> {
@@ -119,14 +114,15 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt_function(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         name: &token::Token,
         params: &LinkedList<token::Token>,
         body: &LinkedList<stmt::Stmt>,
     ) -> Result<(), unwind::Unwind> {
         let function_name = name.lexeme.clone();
-        let function = function::Function::build(name.clone(), params.clone(), (*body).clone());
+        let function =
+            function::Function::build(environment, name.clone(), params.clone(), (*body).clone());
         let function = lox_type::LoxType::Function {
             name: function_name.clone(),
             callable: rc::Rc::new(Box::new(function)),
@@ -136,7 +132,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt_if(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         condition: &expr::Expr,
         then_branch: &stmt::Stmt,
@@ -151,7 +147,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt_print(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         expr: &expr::Expr,
     ) -> Result<(), unwind::Unwind> {
@@ -161,7 +157,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt_return(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         _: &token::Token,
         value: &Option<expr::Expr>,
@@ -176,7 +172,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt_var(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         name: &token::Token,
         initialiser: &Option<expr::Expr>,
@@ -190,7 +186,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_stmt_while(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         condition: &expr::Expr,
         body: &stmt::Stmt,
@@ -202,7 +198,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_expr(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         expression: &expr::Expr,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
@@ -235,7 +231,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_expr_assign(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         expression: &expr::Expr,
         name: &token::Token,
@@ -249,7 +245,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_expr_binary(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         expression: &expr::Expr,
         left: &expr::Expr,
@@ -299,7 +295,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_expr_call(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         callee: &expr::Expr,
         _: &token::Token,
@@ -311,7 +307,8 @@ impl<'r> Interpreter<'r> {
         for expr in arguments {
             args.push(self.evaluate_expr(environment, expr)?);
         }
-        let result = self.call_function(environment, actual_callee, callee, args);
+
+        let result = self.call_function(actual_callee, callee, args);
         match result {
             Err(unwind::Unwind::WithError(_)) => result,
             Ok(value) => Ok(value),
@@ -320,8 +317,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn call_function(
-        &mut self,
-        environment: &mut environment::Environment,
+        &self,
         callee: lox_type::LoxType,
         expr: &expr::Expr,
         arguments: Vec<lox_type::LoxType>,
@@ -339,10 +335,11 @@ impl<'r> Interpreter<'r> {
             }
             Ok(lox_type::LoxType::Nil)
         };
+
         match callee {
             lox_type::LoxType::Function { name: _, callable } => {
                 check_arity(callable.arity())?;
-                match callable.call(self.reporter, environment, arguments) {
+                match callable.call(self.reporter, arguments) {
                     Err(unwind::Unwind::WithError(message)) => {
                         Err(unwind::Unwind::WithError(message))
                     }
@@ -378,7 +375,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_expr_logical(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         left: &expr::Expr,
         operator: &token::Token,
@@ -397,7 +394,7 @@ impl<'r> Interpreter<'r> {
     }
 
     fn evaluate_expr_unary(
-        &mut self,
+        &self,
         environment: &mut environment::Environment,
         expression: &expr::Expr,
         operator: &token::Token,
@@ -420,7 +417,7 @@ impl<'r> Interpreter<'r> {
         expression: &expr::Expr,
         name: &token::Token,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
-        match environment.get(name) {
+        match environment::Environment::get(environment, name) {
             Ok(value) => Ok(value),
             Err(unwind::Unwind::WithError(message)) => self.add_diagnostic(expression, message),
             _ => unreachable!(),
@@ -752,7 +749,7 @@ mod test {
     fn test_expressions(tests: Vec<(&str, Result<lox_type::LoxType, unwind::Unwind>)>) {
         let reporter = TestReporter::build();
         for (src, expected_result) in tests {
-            let mut interpreter = Interpreter::build(&reporter);
+            let interpreter = Interpreter::build(&reporter);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -879,7 +876,7 @@ mod test {
         let blank_location = location::FileLocation::new(0, 0);
         let reporter = TestReporter::build();
         for (src, key, expected_value) in tests {
-            let mut interpreter = Interpreter::build(&reporter);
+            let interpreter = Interpreter::build(&reporter);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -901,7 +898,7 @@ mod test {
                         blank_location,
                         None,
                     );
-                    match environment.get(&key) {
+                    match environment::Environment::get(&environment, &key) {
                         Ok(value) => {
                             assert_eq!(value, expected_value, "Unexpected value for '{}'", src)
                         }
@@ -940,7 +937,7 @@ mod test {
 
         let reporter = TestReporter::build();
         for (src, expected_message) in tests {
-            let mut interpreter = Interpreter::build(&reporter);
+            let interpreter = Interpreter::build(&reporter);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);

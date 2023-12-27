@@ -11,6 +11,7 @@ wasm:
 clean:
 	$(MAKE) CARGO_FLAGS=$(CARGO_FLAGS) -C ../lox-wasm clean
 	npm run clean
+	rm -f lox-vsce-*.vsix
 
 package: build
 	npm run package
@@ -18,7 +19,7 @@ package: build
 clippy:
 	$(MAKE) CARGO_FLAGS=$(CARGO_FLAGS) -C ../lox-wasm clippy
 
-test:
+test: build
 	$(MAKE) CARGO_FLAGS=$(CARGO_FLAGS) -C ../lox-wasm test
 	npm run test
 

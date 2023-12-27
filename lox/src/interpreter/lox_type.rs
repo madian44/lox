@@ -1,4 +1,4 @@
-use crate::{interpreter::environment, interpreter::lox_type, interpreter::unwind, reporter};
+use crate::{interpreter::lox_type, interpreter::unwind, reporter};
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 
@@ -6,7 +6,6 @@ pub trait Callable: Debug {
     fn call(
         &self,
         reporter: &dyn reporter::Reporter,
-        environment: &mut environment::Environment,
         arguments: Vec<lox_type::LoxType>,
     ) -> Result<lox_type::LoxType, unwind::Unwind>;
     fn arity(&self) -> usize;
