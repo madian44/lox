@@ -1,6 +1,6 @@
 use crate::token;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Assign {
         name: token::Token,
@@ -10,6 +10,11 @@ pub enum Expr {
         left: Box<Expr>,
         operator: token::Token,
         right: Box<Expr>,
+    },
+    Call {
+        callee: Box<Expr>,
+        paren: token::Token,
+        arguments: Vec<Expr>,
     },
     Grouping {
         expression: Box<Expr>,
@@ -44,6 +49,14 @@ impl Expr {
             left: Box::new(left),
             operator,
             right: Box::new(right),
+        }
+    }
+
+    pub fn build_call(callee: Expr, paren: token::Token, arguments: Vec<Expr>) -> Self {
+        Expr::Call {
+            callee: Box::new(callee),
+            paren,
+            arguments,
         }
     }
 
