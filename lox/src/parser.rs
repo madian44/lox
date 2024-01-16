@@ -354,7 +354,7 @@ impl<'k> Parser<'k> {
         if self.consume_matching_token(&token::TokenType::Equal) {
             let value = self.assignment_expression(data)?;
 
-            if let expr::Expr::Variable { name } = expr {
+            if let expr::Expr::Variable { name, .. } = expr {
                 return Ok(expr::Expr::build_assign(name, value));
             }
             let _ = self.add_diagnostic("Invalid assignment target");

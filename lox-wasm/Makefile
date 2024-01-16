@@ -17,3 +17,6 @@ clippy:
 test:
 	cargo test
 	$(MAKE) -C ../lox test
+
+init:
+	cargo update

@@ -60,6 +60,10 @@ pub mod test {
         pub fn has_message(&self, message: &str) -> bool {
             self.messages.borrow().iter().any(|m| m.message == message)
         }
+        
+        pub fn has_diagnostic(&self, message: &str) -> bool {
+            self.diagnostics.borrow().iter().any(|m| m.message == message)
+        }
 
         pub fn reset(&self) {
             self.messages.borrow_mut().clear();
