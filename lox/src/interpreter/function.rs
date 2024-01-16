@@ -2,7 +2,7 @@ use crate::interpreter::interpret_with_environment;
 use crate::{
     interpreter::environment, interpreter::lox_type, interpreter::unwind, reporter, stmt, token,
 };
-use std::collections::LinkedList;
+use std::collections::{HashMap, LinkedList};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::zip;
 
@@ -49,6 +49,7 @@ impl lox_type::Callable for Function {
     fn call(
         &self,
         reporter: &dyn reporter::Reporter,
+        depths: &HashMap<usize, usize>,
         arguments: Vec<lox_type::LoxType>,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
         let closure = self.closure.clone();
@@ -58,7 +59,7 @@ impl lox_type::Callable for Function {
             environment.define(&k.lexeme, v);
         }
 
-        interpret_with_environment(reporter, environment, &self.body)?;
+        interpret_with_environment(reporter, depths, environment, &self.body)?;
 
         Ok(lox_type::LoxType::Nil)
     }

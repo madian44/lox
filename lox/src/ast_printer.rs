@@ -153,26 +153,28 @@ mod internal {
 
     pub fn print_expr(expr: &expr::Expr) -> String {
         match expr {
-            expr::Expr::Assign { name, value } => print_expr_assign(name, value),
+            expr::Expr::Assign { name, value, .. } => print_expr_assign(name, value),
             expr::Expr::Binary {
                 left,
                 operator,
                 right,
+                ..
             } => print_expr_binary(left, operator, right),
             expr::Expr::Call {
-                callee,
-                paren: _,
-                arguments,
+                callee, arguments, ..
             } => print_expr_call(callee, arguments),
-            expr::Expr::Grouping { expression } => print_expr_grouping(expression),
-            expr::Expr::Literal { value } => print_expr_literal(value),
+            expr::Expr::Grouping { expression, .. } => print_expr_grouping(expression),
+            expr::Expr::Literal { value, .. } => print_expr_literal(value),
             expr::Expr::Logical {
                 left,
                 operator,
                 right,
+                ..
             } => print_expr_logical(left, operator, right),
-            expr::Expr::Unary { operator, right } => print_expr_unary(operator, right),
-            expr::Expr::Variable { name } => print_expr_variable(name),
+            expr::Expr::Unary {
+                operator, right, ..
+            } => print_expr_unary(operator, right),
+            expr::Expr::Variable { name, .. } => print_expr_variable(name),
         }
     }
 

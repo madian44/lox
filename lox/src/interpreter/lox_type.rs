@@ -1,4 +1,5 @@
 use crate::{interpreter::lox_type, interpreter::unwind, reporter};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 
@@ -6,6 +7,7 @@ pub trait Callable: Debug {
     fn call(
         &self,
         reporter: &dyn reporter::Reporter,
+        depths: &HashMap<usize, usize>,
         arguments: Vec<lox_type::LoxType>,
     ) -> Result<lox_type::LoxType, unwind::Unwind>;
     fn arity(&self) -> usize;

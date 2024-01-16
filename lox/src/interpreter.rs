@@ -5,45 +5,48 @@ mod native_functions;
 mod unwind;
 
 use crate::{expr, location, reporter, stmt, token};
-use std::collections::LinkedList;
+use std::collections::{HashMap, LinkedList};
 use std::rc;
 
-pub fn interpret(reporter: &dyn reporter::Reporter, statements: LinkedList<stmt::Stmt>) {
+pub fn interpret(
+    reporter: &dyn reporter::Reporter,
+    depths: &HashMap<usize, usize>,
+    statements: LinkedList<stmt::Stmt>,
+) {
     let mut environment = environment::Environment::new();
     Interpreter::define_native_functions(&mut environment);
 
-    let _ = interpret_with_environment(reporter, environment, &statements);
+    let _ = interpret_with_environment(reporter, depths, environment, &statements);
 }
 
 fn interpret_with_environment(
     reporter: &dyn reporter::Reporter,
-    mut environment: environment::Environment,
+    depths: &HashMap<usize, usize>,
+    environment: environment::Environment,
     statements: &LinkedList<stmt::Stmt>,
 ) -> Result<(), unwind::Unwind> {
-    let interpreter = Interpreter::build(reporter);
+    let interpreter = Interpreter::build(reporter, depths, statements);
 
-    for statement in statements {
-        match interpreter.evaluate_stmt(&mut environment, statement) {
-            Err(unwind::Unwind::WithError(message)) => {
-                reporter.add_message(&message);
-                return Err(unwind::Unwind::WithError(message));
-            }
-            Err(unwind::Unwind::WithResult(value)) => {
-                return Err(unwind::Unwind::WithResult(value));
-            }
-            _ => (),
-        }
-    }
-    Ok(())
+    interpreter.interpret_statements(environment)
 }
 
 struct Interpreter<'r> {
     reporter: &'r dyn reporter::Reporter,
+    depths: &'r HashMap<usize, usize>,
+    statements: &'r LinkedList<stmt::Stmt>,
 }
 
 impl<'r> Interpreter<'r> {
-    fn build(reporter: &'r dyn reporter::Reporter) -> Self {
-        Self { reporter }
+    fn build(
+        reporter: &'r dyn reporter::Reporter,
+        depths: &'r HashMap<usize, usize>,
+        statements: &'r LinkedList<stmt::Stmt>,
+    ) -> Self {
+        Self {
+            reporter,
+            depths,
+            statements,
+        }
     }
 
     fn define_native_functions(environment: &mut environment::Environment) {
@@ -54,6 +57,25 @@ impl<'r> Interpreter<'r> {
                 callable: rc::Rc::new(Box::new(native_functions::Clock)),
             },
         );
+    }
+
+    fn interpret_statements(
+        &self,
+        mut environment: environment::Environment,
+    ) -> Result<(), unwind::Unwind> {
+        for statement in self.statements {
+            match self.evaluate_stmt(&mut environment, statement) {
+                Err(unwind::Unwind::WithError(message)) => {
+                    self.reporter.add_message(&message);
+                    return Err(unwind::Unwind::WithError(message));
+                }
+                Err(unwind::Unwind::WithResult(value)) => {
+                    return Err(unwind::Unwind::WithResult(value));
+                }
+                _ => (),
+            }
+        }
+        Ok(())
     }
 
     fn evaluate_stmt(
@@ -203,30 +225,35 @@ impl<'r> Interpreter<'r> {
         expression: &expr::Expr,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
         match expression {
-            expr::Expr::Assign { name, value } => {
-                self.evaluate_expr_assign(environment, expression, name, value)
-            }
+            expr::Expr::Assign {
+                id, name, value, ..
+            } => self.evaluate_expr_assign(environment, expression, id, name, value),
             expr::Expr::Binary {
                 left,
                 operator,
                 right,
+                ..
             } => self.evaluate_expr_binary(environment, expression, left, operator, right),
             expr::Expr::Call {
                 callee,
                 paren,
                 arguments,
+                ..
             } => self.evaluate_expr_call(environment, callee, paren, arguments),
-            expr::Expr::Grouping { expression } => self.evaluate_expr(environment, expression),
-            expr::Expr::Literal { value } => self.evaluate_expr_literal(expression, value),
+            expr::Expr::Grouping { expression, .. } => self.evaluate_expr(environment, expression),
+            expr::Expr::Literal { value, .. } => self.evaluate_expr_literal(expression, value),
             expr::Expr::Logical {
                 left,
                 operator,
                 right,
+                ..
             } => self.evaluate_expr_logical(environment, left, operator, right),
-            expr::Expr::Unary { operator, right } => {
-                self.evaluate_expr_unary(environment, expression, operator, right)
+            expr::Expr::Unary {
+                operator, right, ..
+            } => self.evaluate_expr_unary(environment, expression, operator, right),
+            expr::Expr::Variable { id, name, .. } => {
+                self.evaluate_expr_var(environment, expression, id, name)
             }
-            expr::Expr::Variable { name } => self.evaluate_expr_var(environment, expression, name),
         }
     }
 
@@ -234,11 +261,14 @@ impl<'r> Interpreter<'r> {
         &self,
         environment: &mut environment::Environment,
         expression: &expr::Expr,
+        id: &usize,
         name: &token::Token,
         value: &expr::Expr,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
         let value = self.evaluate_expr(environment, value)?;
-        if let Err(unwind::Unwind::WithError(message)) = environment.assign(name, value.clone()) {
+        if let Err(unwind::Unwind::WithError(message)) =
+            environment.assign_at(self.depths.get(id).cloned(), name, value.clone())
+        {
             self.add_diagnostic(expression, message)?;
         }
         Ok(value)
@@ -339,7 +369,7 @@ impl<'r> Interpreter<'r> {
         match callee {
             lox_type::LoxType::Function { name: _, callable } => {
                 check_arity(callable.arity())?;
-                match callable.call(self.reporter, arguments) {
+                match callable.call(self.reporter, self.depths, arguments) {
                     Err(unwind::Unwind::WithError(message)) => {
                         Err(unwind::Unwind::WithError(message))
                     }
@@ -415,13 +445,24 @@ impl<'r> Interpreter<'r> {
         &self,
         environment: &mut environment::Environment,
         expression: &expr::Expr,
+        id: &usize,
         name: &token::Token,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
-        match environment::Environment::get(environment, name) {
+        match self.look_up_variable(environment, id, name) {
             Ok(value) => Ok(value),
             Err(unwind::Unwind::WithError(message)) => self.add_diagnostic(expression, message),
             _ => unreachable!(),
         }
+    }
+
+    fn look_up_variable(
+        &self,
+        environment: &environment::Environment,
+        id: &usize,
+        name: &token::Token,
+    ) -> Result<lox_type::LoxType, unwind::Unwind> {
+        let depth = self.depths.get(id).cloned();
+        environment.get_at(depth, name)
     }
 
     fn add_diagnostic(
@@ -499,51 +540,27 @@ fn is_equal(left: &lox_type::LoxType, right: &lox_type::LoxType) -> bool {
 
 fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
     match expr {
-        expr::Expr::Assign { name, value: _ } => &name.start,
-        expr::Expr::Binary {
-            left,
-            operator: _,
-            right: _,
-        } => get_start_location(left),
-        expr::Expr::Call {
-            callee,
-            paren: _,
-            arguments: _,
-        } => get_start_location(callee),
-        expr::Expr::Grouping { expression } => get_start_location(expression),
-        expr::Expr::Literal { value } => &value.start,
-        expr::Expr::Logical {
-            left,
-            operator: _,
-            right: _,
-        } => get_start_location(left),
-        expr::Expr::Unary { operator, right: _ } => &operator.start,
-        expr::Expr::Variable { name } => &name.start,
+        expr::Expr::Assign { name, .. } => &name.start,
+        expr::Expr::Binary { left, .. } => get_start_location(left),
+        expr::Expr::Call { callee, .. } => get_start_location(callee),
+        expr::Expr::Grouping { expression, .. } => get_start_location(expression),
+        expr::Expr::Literal { value, .. } => &value.start,
+        expr::Expr::Logical { left, .. } => get_start_location(left),
+        expr::Expr::Unary { operator, .. } => &operator.start,
+        expr::Expr::Variable { name, .. } => &name.start,
     }
 }
 
 fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
     match expr {
-        expr::Expr::Assign { name: _, value } => get_end_location(value),
-        expr::Expr::Binary {
-            left: _,
-            operator: _,
-            right,
-        } => get_end_location(right),
-        expr::Expr::Call {
-            callee: _,
-            paren,
-            arguments: _,
-        } => &paren.end,
-        expr::Expr::Grouping { expression } => get_end_location(expression),
-        expr::Expr::Literal { value } => &value.end,
-        expr::Expr::Logical {
-            left: _,
-            operator: _,
-            right,
-        } => get_end_location(right),
-        expr::Expr::Unary { operator: _, right } => get_end_location(right),
-        expr::Expr::Variable { name } => &name.end,
+        expr::Expr::Assign { value, .. } => get_end_location(value),
+        expr::Expr::Binary { right, .. } => get_end_location(right),
+        expr::Expr::Call { paren, .. } => &paren.end,
+        expr::Expr::Grouping { expression, .. } => get_end_location(expression),
+        expr::Expr::Literal { value, .. } => &value.end,
+        expr::Expr::Logical { right, .. } => get_end_location(right),
+        expr::Expr::Unary { right, .. } => get_end_location(right),
+        expr::Expr::Variable { name, .. } => &name.end,
     }
 }
 
@@ -551,8 +568,8 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
 mod test {
     use super::*;
     use crate::{
-        ast_printer, expr, location::FileLocation, parser, reporter::test::TestReporter, scanner,
-        token,
+        ast_printer, expr, location::FileLocation, parser, reporter::test::TestReporter, resolver,
+        scanner, token,
     };
 
     #[test]
@@ -586,6 +603,7 @@ mod test {
         let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
+            id: 0,
             value: token::Token::new(
                 token::TokenType::String,
                 "\"\"",
@@ -620,7 +638,9 @@ mod test {
             ),
         ];
 
-        let interpreter = Interpreter::build(&reporter);
+        let depths = HashMap::<usize, usize>::new();
+        let statements = LinkedList::<stmt::Stmt>::new();
+        let interpreter = Interpreter::build(&reporter, &depths, &statements);
 
         for (value, expected_result) in &tests {
             reporter.reset();
@@ -638,6 +658,7 @@ mod test {
         let reporter = TestReporter::build();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
+            id: 0,
             value: token::Token::new(
                 token::TokenType::String,
                 "\"\"",
@@ -672,7 +693,9 @@ mod test {
             ),
         ];
 
-        let interpreter = Interpreter::build(&reporter);
+        let depths = HashMap::<usize, usize>::new();
+        let statements = LinkedList::<stmt::Stmt>::new();
+        let interpreter = Interpreter::build(&reporter, &depths, &statements);
         for (value, expected_result) in &tests {
             reporter.reset();
             assert_eq!(
@@ -748,8 +771,10 @@ mod test {
 
     fn test_expressions(tests: Vec<(&str, Result<lox_type::LoxType, unwind::Unwind>)>) {
         let reporter = TestReporter::build();
+        let depths = HashMap::<usize, usize>::new();
+        let statements = LinkedList::<stmt::Stmt>::new();
         for (src, expected_result) in tests {
-            let interpreter = Interpreter::build(&reporter);
+            let interpreter = Interpreter::build(&reporter, &depths, &statements);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -875,8 +900,10 @@ mod test {
 
         let blank_location = location::FileLocation::new(0, 0);
         let reporter = TestReporter::build();
+        let depths = HashMap::<usize, usize>::new();
+        let statements = LinkedList::<stmt::Stmt>::new();
         for (src, key, expected_value) in tests {
-            let interpreter = Interpreter::build(&reporter);
+            let interpreter = Interpreter::build(&reporter, &depths, &statements);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -898,7 +925,7 @@ mod test {
                         blank_location,
                         None,
                     );
-                    match environment::Environment::get(&environment, &key) {
+                    match environment.get_at(None, &key) {
                         Ok(value) => {
                             assert_eq!(value, expected_value, "Unexpected value for '{}'", src)
                         }
@@ -936,8 +963,10 @@ mod test {
         ];
 
         let reporter = TestReporter::build();
+        let depths = HashMap::<usize, usize>::new();
+        let statements = LinkedList::<stmt::Stmt>::new();
         for (src, expected_message) in tests {
-            let interpreter = Interpreter::build(&reporter);
+            let interpreter = Interpreter::build(&reporter, &depths, &statements);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -995,7 +1024,8 @@ mod test {
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
             let statements = parser::parse(&reporter, tokens);
-            interpret(&reporter, statements);
+            let depths = resolver::resolve(&reporter, &statements);
+            interpret(&reporter, &depths, statements);
 
             if !reporter.has_message(expected_message) {
                 reporter.print_contents();

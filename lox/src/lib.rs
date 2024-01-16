@@ -4,6 +4,7 @@ mod interpreter;
 mod location;
 mod parser;
 mod reporter;
+mod resolver;
 mod scanner;
 mod stmt;
 mod token;
@@ -32,7 +33,7 @@ pub fn parse(reporter: &dyn reporter::Reporter, source: &str) {
         return;
     }
     for stmt in &parser::parse(reporter, tokens) {
-        reporter.add_message(&format!("[expr] {}", ast_printer::print_stmt(stmt)));
+        reporter.add_message(&format!("[stmt] {}", ast_printer::print_stmt(stmt)));
     }
 }
 
@@ -54,8 +55,15 @@ pub fn interpret(reporter: &dyn reporter::Reporter, source: &str) {
     }
 
     for stmt in &statements {
-        reporter.add_message(&format!("[expr] {}", ast_printer::print_stmt(stmt)));
+        reporter.add_message(&format!("[stmt] {}", ast_printer::print_stmt(stmt)));
     }
 
-    interpreter::interpret(reporter, statements);
+    let depths = resolver::resolve(reporter, &statements);
+
+    if reporter.has_diagnostics() {
+        reporter.add_message("[interpreter] not interpreting due to resolver errors");
+        return;
+    }
+
+    interpreter::interpret(reporter, &depths, statements);
 }
