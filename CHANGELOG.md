@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0
+
+### Added
+- Implementation of Resolvin and Binding chapter.
+
 ## 0.10.0
 
 ### Added

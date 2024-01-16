@@ -24,6 +24,7 @@ test: build
 	npm run test
 
 init:
+	$(MAKE) CARGO_FLAGS=$(CARGO_FLAGS) -C ../lox-wasm init
 	npm install
 	npm outdated
 	#npm update

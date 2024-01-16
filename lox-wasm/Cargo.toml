@@ -1,6 +1,6 @@
 [package]
 name = "lox-wasm"
-version = "0.10.0"
+version = "0.11.0"
 authors = ["madian44 <madian44@users.noreply.github.com>"]
 edition = "2021"
 license-file = "LICENSE"
