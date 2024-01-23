@@ -62,3 +62,4 @@ Typescript `vsce` extension.
  * Chapter 9 Control Flow
  * Chapter 10 Functions
  * Chapter 11 Resolving and Binding
+ * Chapter 12 Classes
