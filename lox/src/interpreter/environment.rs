@@ -1,4 +1,4 @@
-use crate::{interpreter::lox_type, interpreter::unwind, token};
+use crate::{interpreter::lox_type, interpreter::unwind};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ impl Frame {
     fn assign_at(
         &mut self,
         depth: usize,
-        name: &token::Token,
+        name: &str,
         value: lox_type::LoxType,
     ) -> Result<(), unwind::Unwind> {
         if depth > 0 && self.enclosing.is_some() {
@@ -25,34 +25,30 @@ impl Frame {
                 .unwrap()
                 .borrow_mut()
                 .assign_at(depth - 1, name, value)
-        } else if depth == 0 && self.values.contains_key(&name.lexeme) {
-            self.values.insert(name.lexeme.clone(), value.clone());
+        } else if depth == 0 && self.values.contains_key(name) {
+            self.values.insert(name.to_string(), value.clone());
             Ok(())
         } else {
             Err(unwind::Unwind::WithError(format!(
                 "Undefined variable '{}'",
-                name.lexeme
+                name
             )))
         }
     }
 
-    pub fn get_at(
-        &self,
-        depth: usize,
-        name: &token::Token,
-    ) -> Result<lox_type::LoxType, unwind::Unwind> {
+    fn get_at(&self, depth: usize, name: &str) -> Result<lox_type::LoxType, unwind::Unwind> {
         if depth > 0 && self.enclosing.is_some() {
             self.enclosing
                 .as_ref()
                 .unwrap()
                 .borrow()
                 .get_at(depth - 1, name)
-        } else if depth == 0 && self.values.contains_key(&name.lexeme) {
-            Ok(self.values.get(&name.lexeme).cloned().unwrap())
+        } else if depth == 0 && self.values.contains_key(name) {
+            Ok(self.values.get(name).cloned().unwrap())
         } else {
             Err(unwind::Unwind::WithError(format!(
                 "Undefined variable '{}'",
-                name.lexeme
+                name
             )))
         }
     }
@@ -96,7 +92,7 @@ impl Environment {
     pub fn assign_at(
         &mut self,
         depth: Option<usize>,
-        name: &token::Token,
+        name: &str,
         value: lox_type::LoxType,
     ) -> Result<(), unwind::Unwind> {
         match depth {
@@ -108,7 +104,7 @@ impl Environment {
     pub fn get_at(
         &self,
         depth: Option<usize>,
-        name: &token::Token,
+        name: &str,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
         match depth {
             None => self.global.borrow().get_at(0, name),
@@ -120,21 +116,13 @@ impl Environment {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{location, token};
 
     #[test]
     fn test_environment() {
         let mut environment = Environment::new();
-        let blank_location = location::FileLocation::new(0, 0);
-        let a_token = token::Token::new(
-            token::TokenType::Identifier,
-            "a",
-            blank_location,
-            blank_location,
-            None,
-        );
+        let a_key = "a";
 
-        let result = environment.get_at(None, &a_token);
+        let result = environment.get_at(None, a_key);
         assert_eq!(
             result,
             Err(unwind::Unwind::WithError(
@@ -148,7 +136,7 @@ mod test {
         );
 
         let a_initial_value = lox_type::LoxType::String("a value".to_string());
-        let result = environment.assign_at(None, &a_token, a_initial_value.clone());
+        let result = environment.assign_at(None, a_key, a_initial_value.clone());
         assert_eq!(
             result,
             Err(unwind::Unwind::WithError(
@@ -161,8 +149,8 @@ mod test {
             "Unexpected ref count"
         );
 
-        environment.define(&a_token.lexeme, a_initial_value.clone());
-        let result = environment.get_at(None, &a_token);
+        environment.define(a_key, a_initial_value.clone());
+        let result = environment.get_at(None, a_key);
         assert_eq!(result, Ok(a_initial_value));
         assert_eq!(
             Rc::strong_count(&environment.frame),
@@ -171,7 +159,7 @@ mod test {
         );
 
         let a_updated_value = lox_type::LoxType::String("a value (updated)".to_string());
-        let result = environment.assign_at(None, &a_token, a_updated_value.clone());
+        let result = environment.assign_at(None, a_key, a_updated_value.clone());
         assert_eq!(result, Ok(()));
         assert_eq!(
             Rc::strong_count(&environment.frame),
@@ -179,7 +167,7 @@ mod test {
             "Unexpected ref count"
         );
 
-        let result = environment.get_at(None, &a_token);
+        let result = environment.get_at(None, a_key);
         assert_eq!(result, Ok(a_updated_value.clone()));
         assert_eq!(
             Rc::strong_count(&environment.frame),
@@ -191,36 +179,15 @@ mod test {
     #[test]
     fn test_nested_environment() {
         let mut original_environment = Environment::new();
-        let blank_location = location::FileLocation::new(0, 0);
-        let a_token = token::Token::new(
-            token::TokenType::Identifier,
-            "a",
-            blank_location,
-            blank_location,
-            None,
-        );
-
-        let b_token = token::Token::new(
-            token::TokenType::Identifier,
-            "b",
-            blank_location,
-            blank_location,
-            None,
-        );
-
-        let c_token = token::Token::new(
-            token::TokenType::Identifier,
-            "c",
-            blank_location,
-            blank_location,
-            None,
-        );
+        let a_key = "a";
+        let b_key = "b";
+        let c_key = "c";
 
         let a_initial_value = lox_type::LoxType::String("a value".to_string());
         let b_initial_value = lox_type::LoxType::String("b value".to_string());
         let c_initial_value = lox_type::LoxType::String("c value".to_string());
-        original_environment.define(&a_token.lexeme, a_initial_value.clone());
-        original_environment.define(&b_token.lexeme, b_initial_value.clone());
+        original_environment.define(a_key, a_initial_value.clone());
+        original_environment.define(b_key, b_initial_value.clone());
 
         let a_nested_value = lox_type::LoxType::String("a value (nested)".to_string());
         let b_updated_value = lox_type::LoxType::String("b value (updated)".to_string());
@@ -240,16 +207,16 @@ mod test {
                 "Unexpected ref count at start of block"
             );
 
-            nested_environment.define(&a_token.lexeme, a_nested_value.clone());
-            nested_environment.define(&c_token.lexeme, c_initial_value.clone());
+            nested_environment.define(a_key, a_nested_value.clone());
+            nested_environment.define(c_key, c_initial_value.clone());
 
-            let result = nested_environment.assign_at(None, &b_token, b_updated_value.clone());
+            let result = nested_environment.assign_at(None, b_key, b_updated_value.clone());
             assert_eq!(result, Ok(()));
 
-            let result = nested_environment.assign_at(Some(1), &b_token, b_updated_value.clone());
+            let result = nested_environment.assign_at(Some(1), b_key, b_updated_value.clone());
             assert_eq!(result, Ok(()));
 
-            let result = nested_environment.assign_at(Some(2), &b_token, b_updated_value.clone());
+            let result = nested_environment.assign_at(Some(2), b_key, b_updated_value.clone());
             assert_eq!(
                 result,
                 Err(unwind::Unwind::WithError(
@@ -257,19 +224,19 @@ mod test {
                 ))
             );
 
-            let result = nested_environment.get_at(Some(0), &a_token);
+            let result = nested_environment.get_at(Some(0), a_key);
             assert_eq!(result, Ok(a_nested_value));
 
-            let result = nested_environment.get_at(None, &a_token);
+            let result = nested_environment.get_at(None, a_key);
             assert_eq!(result, Ok(a_initial_value.clone()));
 
-            let result = nested_environment.get_at(Some(1), &a_token);
+            let result = nested_environment.get_at(Some(1), a_key);
             assert_eq!(result, Ok(a_initial_value.clone()));
 
-            let result = nested_environment.get_at(Some(1), &b_token);
+            let result = nested_environment.get_at(Some(1), b_key);
             assert_eq!(result, Ok(b_updated_value.clone()));
 
-            let result = nested_environment.get_at(Some(0), &c_token);
+            let result = nested_environment.get_at(Some(0), c_key);
             assert_eq!(result, Ok(c_initial_value));
         }
 
@@ -279,13 +246,13 @@ mod test {
             "Unexpected ref count after block"
         );
 
-        let result = original_environment.get_at(Some(0), &a_token);
+        let result = original_environment.get_at(Some(0), a_key);
         assert_eq!(result, Ok(a_initial_value.clone()));
 
-        let result = original_environment.get_at(Some(0), &b_token);
+        let result = original_environment.get_at(Some(0), b_key);
         assert_eq!(result, Ok(b_updated_value.clone()));
 
-        let result = original_environment.get_at(Some(0), &c_token);
+        let result = original_environment.get_at(Some(0), c_key);
         assert_eq!(
             result,
             Err(unwind::Unwind::WithError(

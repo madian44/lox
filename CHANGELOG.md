@@ -3,7 +3,7 @@
 ## 0.11.0
 
 ### Added
-- Implementation of Resolvin and Binding chapter.
+- Implementation of Resolving and Binding chapter.
 
 ## 0.10.0
 

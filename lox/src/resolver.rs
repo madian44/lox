@@ -19,6 +19,8 @@ impl<'t> ResolverError<'t> {
 enum FunctionType {
     None,
     Function,
+    Initialiser,
+    Method,
 }
 
 struct Scopes {
@@ -61,10 +63,10 @@ impl Scopes {
         Ok(())
     }
 
-    fn define(&mut self, name: &token::Token) {
+    fn define(&mut self, name: &str) {
         self.scopes
             .front_mut()
-            .and_then(|m| m.insert(name.lexeme.clone(), true));
+            .and_then(|m| m.insert(name.to_string(), true));
     }
 
     fn is_declared_in_current_scope(&self, name: &str) -> bool {
@@ -121,10 +123,9 @@ impl<'r> Resolver<'r> {
     fn resolve_stmt(&mut self, statement: &stmt::Stmt) {
         match statement {
             stmt::Stmt::Block { statements } => self.resolve_stmt_block(statements),
+            stmt::Stmt::Class { name, methods, .. } => self.resolve_stmt_class(name, methods),
             stmt::Stmt::Expression { expression } => self.resolve_stmt_expression(expression),
-            stmt::Stmt::Function { name, params, body } => {
-                self.resolve_stmt_function(name, params, body)
-            }
+            stmt::Stmt::Function { function } => self.resolve_stmt_function(function),
             stmt::Stmt::If {
                 condition,
                 then_branch,
@@ -144,9 +145,12 @@ impl<'r> Resolver<'r> {
             expr::Expr::Call {
                 callee, arguments, ..
             } => self.resolve_expr_call(callee, arguments),
+            expr::Expr::Get { object, .. } => self.resolve_expr_get(object),
             expr::Expr::Grouping { expression, .. } => self.resolve_expr_grouping(expression),
             expr::Expr::Literal { value, .. } => self.resolve_expr_literal(value),
             expr::Expr::Logical { left, right, .. } => self.resolve_expr_logical(left, right),
+            expr::Expr::Set { object, value, .. } => self.resolve_expr_set(object, value),
+            expr::Expr::This { id, keyword, .. } => self.resolve_expr_this(id, keyword),
             expr::Expr::Unary { right, .. } => self.resolve_expr_unary(right),
             expr::Expr::Variable { id, name } => self.resolve_expr_variable(id, name),
         }
@@ -158,22 +162,41 @@ impl<'r> Resolver<'r> {
         self.scopes.end();
     }
 
-    fn resolve_stmt_expression(&mut self, expression: &expr::Expr) {
-        self.resolve_expr(expression);
-    }
-
-    fn resolve_stmt_function(
-        &mut self,
-        name: &token::Token,
-        params: &LinkedList<token::Token>,
-        body: &LinkedList<stmt::Stmt>,
-    ) {
+    fn resolve_stmt_class(&mut self, name: &token::Token, methods: &LinkedList<stmt::Stmt>) {
         if let Err(e) = self.scopes.declare(name) {
             self.reporter
                 .add_diagnostic(&e.token.start, &e.token.end, &e.message);
         }
-        self.scopes.define(name);
-        self.resolve_function(FunctionType::Function, params, body);
+        self.scopes.define(&name.lexeme);
+
+        self.scopes.begin();
+        self.scopes.define("this");
+
+        for method in methods {
+            if let stmt::Stmt::Function { function, .. } = method {
+                let function_type = if function.name().lexeme == "init" {
+                    FunctionType::Initialiser
+                } else {
+                    FunctionType::Method
+                };
+                self.resolve_function(function_type, function);
+            }
+        }
+
+        self.scopes.end();
+    }
+
+    fn resolve_stmt_expression(&mut self, expression: &expr::Expr) {
+        self.resolve_expr(expression);
+    }
+
+    fn resolve_stmt_function(&mut self, function: &stmt::function::Function) {
+        if let Err(e) = self.scopes.declare(function.name()) {
+            self.reporter
+                .add_diagnostic(&e.token.start, &e.token.end, &e.message);
+        }
+        self.scopes.define(&function.name().lexeme);
+        self.resolve_function(FunctionType::Function, function);
     }
 
     fn resolve_stmt_if(
@@ -199,7 +222,16 @@ impl<'r> Resolver<'r> {
                 "Cannot return from top-level code",
             );
         }
-        expression.iter().for_each(|e| self.resolve_expr(e));
+        if let Some(expression) = expression {
+            if self.current_function == FunctionType::Initialiser {
+                self.reporter.add_diagnostic(
+                    &keyword.start,
+                    &keyword.end,
+                    "Cannot return a value from an initialiser",
+                );
+            }
+            self.resolve_expr(expression);
+        }
     }
 
     fn resolve_stmt_var(&mut self, name: &token::Token, initialiser: &Option<expr::Expr>) {
@@ -208,7 +240,7 @@ impl<'r> Resolver<'r> {
                 .add_diagnostic(&e.token.start, &e.token.end, &e.message);
         }
         initialiser.iter().for_each(|e| self.resolve_expr(e));
-        self.scopes.define(name);
+        self.scopes.define(&name.lexeme);
     }
 
     fn resolve_stmt_while(&mut self, condition: &expr::Expr, body: &stmt::Stmt) {
@@ -231,6 +263,10 @@ impl<'r> Resolver<'r> {
         arguments.iter().for_each(|a| self.resolve_expr(a));
     }
 
+    fn resolve_expr_get(&mut self, object: &expr::Expr) {
+        self.resolve_expr(object);
+    }
+
     fn resolve_expr_grouping(&mut self, expression: &expr::Expr) {
         self.resolve_expr(expression);
     }
@@ -240,6 +276,15 @@ impl<'r> Resolver<'r> {
     fn resolve_expr_logical(&mut self, left: &expr::Expr, right: &expr::Expr) {
         self.resolve_expr(left);
         self.resolve_expr(right);
+    }
+
+    fn resolve_expr_set(&mut self, object: &expr::Expr, value: &expr::Expr) {
+        self.resolve_expr(object);
+        self.resolve_expr(value);
+    }
+
+    fn resolve_expr_this(&mut self, id: &usize, keyword: &token::Token) {
+        self.resolve_local(id, keyword);
     }
 
     fn resolve_expr_unary(&mut self, right: &expr::Expr) {
@@ -263,21 +308,20 @@ impl<'r> Resolver<'r> {
     fn resolve_function(
         &mut self,
         function_type: FunctionType,
-        params: &LinkedList<token::Token>,
-        body: &LinkedList<stmt::Stmt>,
+        function: &stmt::function::Function,
     ) {
         let enclosing_function = self.current_function;
         self.current_function = function_type;
 
         self.scopes.begin();
-        for param in params {
+        for param in function.params() {
             if let Err(e) = self.scopes.declare(param) {
                 self.reporter
                     .add_diagnostic(&e.token.start, &e.token.end, &e.message);
             }
-            self.scopes.define(param);
+            self.scopes.define(&param.lexeme);
         }
-        self.resolve_stmts(body);
+        self.resolve_stmts(function.body());
         self.scopes.end();
         self.current_function = enclosing_function;
     }
@@ -312,7 +356,7 @@ mod test {
         let res = scopes.is_declared_in_current_scope(&name.lexeme);
         assert!(!res, "Unexpected failure testing declartion of 'name'");
 
-        scopes.define(&name);
+        scopes.define(&name.lexeme);
 
         let res = scopes.is_declared_in_current_scope(&name.lexeme);
         assert!(!res, "Unexpected failure testing definition of 'name'");
@@ -343,7 +387,7 @@ mod test {
         let res = scopes.is_declared_in_current_scope(&name.lexeme);
         assert!(res, "Unexpected failure testing declartion of 'name'");
 
-        scopes.define(&name);
+        scopes.define(&name.lexeme);
 
         let res = scopes.is_declared_in_current_scope(&name.lexeme);
         assert!(!res, "Unexpected failure testing definition of 'name'");
@@ -457,9 +501,13 @@ mod test {
                 "Cannot read local variable in its own initialiser",
             ),
             ("return false;", "Cannot return from top-level code"),
+            (
+                "class Example { init() { return 10; } }",
+                "Cannot return a value from an initialiser",
+            ),
         ];
 
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
 
         for (src, expected_diagnostic) in tests {
             let tokens = scanner::scan_tokens(&reporter, src);

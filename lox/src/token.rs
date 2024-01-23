@@ -1,7 +1,6 @@
 use crate::location;
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::Formatter;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
@@ -58,7 +57,7 @@ pub struct Keywords<'a> {
 }
 
 impl<'a> Keywords<'a> {
-    pub fn build() -> Self {
+    pub fn new() -> Self {
         let mut keywords = HashMap::new();
         keywords.insert("and", TokenType::And);
         keywords.insert("class", TokenType::Class);
@@ -131,7 +130,25 @@ impl Token {
 }
 
 impl fmt::Display for Token {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?} '{}'", self.token_type, self.lexeme)
+    }
+}
+
+impl location::ProvideLocation for Token {
+    fn start(&self) -> &location::FileLocation {
+        &self.start
+    }
+    fn end(&self) -> &location::FileLocation {
+        &self.end
+    }
+}
+
+impl<'a> location::ProvideLocation for &'a Token {
+    fn start(&self) -> &location::FileLocation {
+        &self.start
+    }
+    fn end(&self) -> &location::FileLocation {
+        &self.end
     }
 }

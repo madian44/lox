@@ -18,7 +18,7 @@ pub struct TestReporter {
 }
 
 impl TestReporter {
-    pub fn build() -> Self {
+    pub fn new() -> Self {
         TestReporter {
             diagnostics: RefCell::new(Vec::new()),
             messages: RefCell::new(Vec::new()),

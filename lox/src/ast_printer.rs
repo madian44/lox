@@ -18,10 +18,9 @@ mod internal {
     pub fn print_stmt(indent: usize, stmt: &stmt::Stmt) -> String {
         match stmt {
             stmt::Stmt::Block { statements } => print_stmt_block(indent, statements),
+            stmt::Stmt::Class { name, methods } => print_stmt_class(indent, name, methods),
             stmt::Stmt::Expression { expression } => print_stmt_expr(indent, expression),
-            stmt::Stmt::Function { name, params, body } => {
-                print_stmt_function(indent, name, params, body)
-            }
+            stmt::Stmt::Function { function } => print_stmt_function(indent, function),
             stmt::Stmt::If {
                 condition,
                 then_branch,
@@ -45,6 +44,21 @@ mod internal {
         result
     }
 
+    fn print_stmt_class(
+        indent: usize,
+        name: &token::Token,
+        methods: &LinkedList<stmt::Stmt>,
+    ) -> String {
+        let mut result = format!("{}(class {}\n", indent_string(indent), name.lexeme);
+
+        for method in methods {
+            result.push_str(&print_stmt(indent + 1, method));
+        }
+
+        result.push_str(&format!("{})\n", indent_string(indent)));
+        result
+    }
+
     fn print_stmt_expr(indent: usize, expr: &expr::Expr) -> String {
         format!(
             "{}{}\n",
@@ -53,24 +67,20 @@ mod internal {
         )
     }
 
-    fn print_stmt_function(
-        indent: usize,
-        name: &token::Token,
-        params: &LinkedList<token::Token>,
-        body: &LinkedList<stmt::Stmt>,
-    ) -> String {
+    fn print_stmt_function(indent: usize, function: &stmt::function::Function) -> String {
         let mut result = format!(
             "{}(fun {}({})\n",
             indent_string(indent),
-            name.lexeme,
-            params
+            function.name().lexeme,
+            function
+                .params()
                 .iter()
-                .map(|t| t.lexeme.clone())
+                .map(|p| p.lexeme.clone())
                 .collect::<Vec<String>>()
                 .as_slice()
                 .join(" ")
         );
-        for statement in body {
+        for statement in function.body() {
             result.push_str(&print_stmt(indent + 1, statement));
         }
         result.push_str(&format!("{})\n", indent_string(indent)));
@@ -113,7 +123,7 @@ mod internal {
         value: &Option<expr::Expr>,
     ) -> String {
         format!(
-            "{}{}",
+            "{}{}\n",
             indent_string(indent),
             if let Some(value) = value {
                 parenthesize("return", vec![value])
@@ -163,6 +173,7 @@ mod internal {
             expr::Expr::Call {
                 callee, arguments, ..
             } => print_expr_call(callee, arguments),
+            expr::Expr::Get { object, name, .. } => print_expr_get(object, name),
             expr::Expr::Grouping { expression, .. } => print_expr_grouping(expression),
             expr::Expr::Literal { value, .. } => print_expr_literal(value),
             expr::Expr::Logical {
@@ -171,6 +182,13 @@ mod internal {
                 right,
                 ..
             } => print_expr_logical(left, operator, right),
+            expr::Expr::Set {
+                object,
+                name,
+                value,
+                ..
+            } => print_expr_set(object, name, value),
+            expr::Expr::This { .. } => print_expr_this(),
             expr::Expr::Unary {
                 operator, right, ..
             } => print_expr_unary(operator, right),
@@ -200,6 +218,10 @@ mod internal {
         )
     }
 
+    fn print_expr_get(object: &expr::Expr, name: &token::Token) -> String {
+        format!("({}.{})", print_expr(object), name.lexeme)
+    }
+
     fn print_expr_grouping(expression: &expr::Expr) -> String {
         parenthesize("group", vec![expression])
     }
@@ -221,6 +243,18 @@ mod internal {
         right: &expr::Expr,
     ) -> String {
         parenthesize(&operator.lexeme, vec![left, right])
+    }
+
+    fn print_expr_set(object: &expr::Expr, name: &token::Token, value: &expr::Expr) -> String {
+        format!(
+            "(= {} {} {}",
+            print_expr(object),
+            name.lexeme,
+            print_expr(value)
+        )
+    }
+    fn print_expr_this() -> String {
+        "this".to_string()
     }
 
     fn print_expr_unary(operator: &token::Token, right: &expr::Expr) -> String {
