@@ -1,6 +1,6 @@
 [package]
 name = "lox-wasm"
-version = "0.11.0"
+version = "0.12.0"
 authors = ["madian44 <madian44@users.noreply.github.com>"]
 edition = "2021"
 license-file = "LICENSE"
@@ -11,12 +11,12 @@ description = ""
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-bindgen = { version = "0.2.89", features = ["serde-serialize"] }
-js-sys = "0.3.66"
+wasm-bindgen = { version = "0.2.90", features = ["serde-serialize"] }
+js-sys = "0.3.67"
 lox = { path = "../lox" }
-serde = { version = "1.0.194", features = ["derive"] }
+serde = { version = "1.0.195", features = ["derive"] }
 serde-wasm-bindgen = "0.6.3"
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.39"
+wasm-bindgen-test = "0.3.40"
 

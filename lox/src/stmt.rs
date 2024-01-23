@@ -1,18 +1,21 @@
-use crate::{expr, token};
+pub mod function;
+use crate::{expr, stmt, token};
 use std::collections::LinkedList;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Stmt {
     Block {
         statements: LinkedList<Stmt>,
+    },
+    Class {
+        name: token::Token,
+        methods: LinkedList<Stmt>,
     },
     Expression {
         expression: expr::Expr,
     },
     Function {
-        name: token::Token,
-        params: LinkedList<token::Token>,
-        body: LinkedList<Stmt>,
+        function: function::Function,
     },
     If {
         condition: expr::Expr,
@@ -34,4 +37,16 @@ pub enum Stmt {
         condition: expr::Expr,
         body: Box<Stmt>,
     },
+}
+
+impl Stmt {
+    pub fn new_function(
+        name: token::Token,
+        params: LinkedList<token::Token>,
+        body: LinkedList<Stmt>,
+    ) -> Self {
+        stmt::Stmt::Function {
+            function: function::Function::new(name, params, body),
+        }
+    }
 }

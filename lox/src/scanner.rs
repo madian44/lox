@@ -4,7 +4,7 @@ use std::iter::Peekable;
 use std::str::CharIndices;
 
 pub fn scan_tokens(reporter: &dyn reporter::Reporter, source: &str) -> LinkedList<token::Token> {
-    let mut scanner = Scanner::build(reporter, source);
+    let mut scanner = Scanner::new(reporter, source);
     scanner.scan(source)
 }
 
@@ -22,7 +22,7 @@ struct Scanner<'k> {
 }
 
 impl<'k> Scanner<'k> {
-    fn build(reporter: &'k dyn reporter::Reporter, source: &'k str) -> Self {
+    fn new(reporter: &'k dyn reporter::Reporter, source: &'k str) -> Self {
         Scanner {
             token_start_line_number: 0,
             token_start_line_offset: 0,
@@ -30,7 +30,7 @@ impl<'k> Scanner<'k> {
             current_line_offset: 0,
             start_of_token: 0,
             current_end_of_token: 0,
-            keywords: token::Keywords::build(),
+            keywords: token::Keywords::new(),
             char_indices: source.char_indices().peekable(),
             reporter,
         }
@@ -52,48 +52,48 @@ impl<'k> Scanner<'k> {
             }
         }
         self.start_of_token = self.current_end_of_token;
-        tokens.push_back(self.build_token(token::TokenType::Eof, source));
+        tokens.push_back(self.new_token(token::TokenType::Eof, source));
         tokens
     }
 
     fn parse_character(&mut self, source: &str, c: char) -> Option<token::Token> {
         match c {
-            '(' => Some(self.build_token(token::TokenType::LeftParen, source)),
-            ')' => Some(self.build_token(token::TokenType::RightParen, source)),
-            '{' => Some(self.build_token(token::TokenType::LeftBrace, source)),
-            '}' => Some(self.build_token(token::TokenType::RightBrace, source)),
-            ',' => Some(self.build_token(token::TokenType::Comma, source)),
-            '.' => Some(self.build_token(token::TokenType::Dot, source)),
-            '-' => Some(self.build_token(token::TokenType::Minus, source)),
-            '+' => Some(self.build_token(token::TokenType::Plus, source)),
-            ';' => Some(self.build_token(token::TokenType::Semicolon, source)),
-            '*' => Some(self.build_token(token::TokenType::Star, source)),
+            '(' => Some(self.new_token(token::TokenType::LeftParen, source)),
+            ')' => Some(self.new_token(token::TokenType::RightParen, source)),
+            '{' => Some(self.new_token(token::TokenType::LeftBrace, source)),
+            '}' => Some(self.new_token(token::TokenType::RightBrace, source)),
+            ',' => Some(self.new_token(token::TokenType::Comma, source)),
+            '.' => Some(self.new_token(token::TokenType::Dot, source)),
+            '-' => Some(self.new_token(token::TokenType::Minus, source)),
+            '+' => Some(self.new_token(token::TokenType::Plus, source)),
+            ';' => Some(self.new_token(token::TokenType::Semicolon, source)),
+            '*' => Some(self.new_token(token::TokenType::Star, source)),
             '!' => {
                 if self.peek('=') {
-                    Some(self.build_token(token::TokenType::BangEqual, source))
+                    Some(self.new_token(token::TokenType::BangEqual, source))
                 } else {
-                    Some(self.build_token(token::TokenType::Bang, source))
+                    Some(self.new_token(token::TokenType::Bang, source))
                 }
             }
             '=' => {
                 if self.peek('=') {
-                    Some(self.build_token(token::TokenType::EqualEqual, source))
+                    Some(self.new_token(token::TokenType::EqualEqual, source))
                 } else {
-                    Some(self.build_token(token::TokenType::Equal, source))
+                    Some(self.new_token(token::TokenType::Equal, source))
                 }
             }
             '<' => {
                 if self.peek('=') {
-                    Some(self.build_token(token::TokenType::LessEqual, source))
+                    Some(self.new_token(token::TokenType::LessEqual, source))
                 } else {
-                    Some(self.build_token(token::TokenType::Less, source))
+                    Some(self.new_token(token::TokenType::Less, source))
                 }
             }
             '>' => {
                 if self.peek('=') {
-                    Some(self.build_token(token::TokenType::GreaterEqual, source))
+                    Some(self.new_token(token::TokenType::GreaterEqual, source))
                 } else {
-                    Some(self.build_token(token::TokenType::Greater, source))
+                    Some(self.new_token(token::TokenType::Greater, source))
                 }
             }
             '/' => {
@@ -101,7 +101,7 @@ impl<'k> Scanner<'k> {
                     self.consume_line();
                     None
                 } else {
-                    Some(self.build_token(token::TokenType::Slash, source))
+                    Some(self.new_token(token::TokenType::Slash, source))
                 }
             }
             '"' => self.build_string(source),
@@ -113,9 +113,9 @@ impl<'k> Scanner<'k> {
             }
             _ => {
                 if c.is_ascii_digit() {
-                    self.build_number(source)
+                    Some(self.new_number(source))
                 } else if c.is_alphabetic() || c == '_' {
-                    self.build_identifier(source)
+                    Some(self.new_identifier(source))
                 } else {
                     self.reporter.add_diagnostic(
                         &location::FileLocation::new(
@@ -162,7 +162,7 @@ impl<'k> Scanner<'k> {
         next.chars().next()
     }
 
-    fn build_token(&self, token_type: token::TokenType, source: &str) -> token::Token {
+    fn new_token(&self, token_type: token::TokenType, source: &str) -> token::Token {
         let lexeme = &source[self.start_of_token..=self.current_end_of_token];
         token::Token::new(
             token_type,
@@ -173,7 +173,7 @@ impl<'k> Scanner<'k> {
         )
     }
 
-    fn build_string_token(&self, source: &str) -> token::Token {
+    fn new_string_token(&self, source: &str) -> token::Token {
         let lexeme = &source[self.start_of_token..=self.current_end_of_token];
         token::Token::new(
             token::TokenType::String,
@@ -186,7 +186,7 @@ impl<'k> Scanner<'k> {
         )
     }
 
-    fn build_number_token(&self, source: &str) -> token::Token {
+    fn new_number_token(&self, source: &str) -> token::Token {
         let lexeme = &source[self.start_of_token..=self.current_end_of_token];
         token::Token::new(
             token::TokenType::Number,
@@ -214,7 +214,7 @@ impl<'k> Scanner<'k> {
                     self.current_line_number += 1;
                 }
                 if c == '"' {
-                    return Some(self.build_string_token(source));
+                    return Some(self.new_string_token(source));
                 }
             } else {
                 self.reporter.add_diagnostic(
@@ -233,25 +233,25 @@ impl<'k> Scanner<'k> {
         }
     }
 
-    fn build_number(&mut self, source: &str) -> Option<token::Token> {
+    fn new_number(&mut self, source: &str) -> token::Token {
         self.scan_digits();
         if let Some((i, c)) = self.char_indices.peek() {
             let index = *i;
             if *c == '.' {
                 let peeked_next_char = self.peek_next(source, index);
                 if peeked_next_char.is_none() {
-                    return Some(self.build_number_token(source));
+                    return self.new_number_token(source);
                 }
                 if !peeked_next_char.unwrap().is_ascii_digit() {
-                    return Some(self.build_number_token(source));
+                    return self.new_number_token(source);
                 }
                 self.advance();
             } else {
-                return Some(self.build_number_token(source));
+                return self.new_number_token(source);
             }
         }
         self.scan_digits();
-        Some(self.build_number_token(source))
+        self.new_number_token(source)
     }
 
     fn scan_digits(&mut self) {
@@ -263,7 +263,7 @@ impl<'k> Scanner<'k> {
         }
     }
 
-    fn build_identifier(&mut self, source: &str) -> Option<token::Token> {
+    fn new_identifier(&mut self, source: &str) -> token::Token {
         while let Some((_i, c)) = self.char_indices.peek() {
             if c.is_alphabetic() || c.is_ascii_digit() || *c == '_' {
                 self.advance();
@@ -271,16 +271,16 @@ impl<'k> Scanner<'k> {
                 break;
             }
         }
-        let token = self.build_token(token::TokenType::Identifier, source);
+        let token = self.new_token(token::TokenType::Identifier, source);
         if let Some(identifier_token) = self.keywords.get_keyword(&token.lexeme) {
             let literal = token::get_keyword_literal(&identifier_token);
-            return Some(token::Token {
+            return token::Token {
                 token_type: identifier_token,
                 literal,
                 ..token
-            });
+            };
         }
-        Some(token)
+        token
     }
 }
 
@@ -293,7 +293,7 @@ mod test {
     use crate::token::Token;
 
     fn execute_tests(tests: &Vec<(&str, Vec<Token>)>) {
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
 
         for (source, expected_tokens) in tests {
             reporter.reset();
@@ -708,7 +708,7 @@ mod test {
 
     #[test]
     fn diagnostic_tests() {
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
 
         let tests = vec![
             (

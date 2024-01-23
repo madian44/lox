@@ -1,8 +1,9 @@
 use crate::{interpreter::lox_type, interpreter::unwind};
+use std::rc::Rc;
 use std::time;
 
 #[derive(Debug)]
-pub struct Clock;
+struct Clock;
 
 impl lox_type::NativeCallable for Clock {
     fn call(&self, _: Vec<lox_type::LoxType>) -> Result<lox_type::LoxType, unwind::Unwind> {
@@ -16,5 +17,12 @@ impl lox_type::NativeCallable for Clock {
 
     fn arity(&self) -> usize {
         0
+    }
+}
+
+pub fn clock() -> lox_type::LoxType {
+    lox_type::LoxType::NativeFunction {
+        name: "clock".to_string(),
+        callable: Rc::new(Box::new(Clock)),
     }
 }

@@ -12,3 +12,8 @@ impl FileLocation {
         }
     }
 }
+
+pub trait ProvideLocation {
+    fn start(&self) -> &FileLocation;
+    fn end(&self) -> &FileLocation;
+}

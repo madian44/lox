@@ -38,7 +38,7 @@ pub mod test {
     }
 
     impl TestReporter {
-        pub fn build() -> Self {
+        pub fn new() -> Self {
             TestReporter {
                 diagnostics: RefCell::new(Vec::new()),
                 messages: RefCell::new(Vec::new()),
@@ -60,9 +60,12 @@ pub mod test {
         pub fn has_message(&self, message: &str) -> bool {
             self.messages.borrow().iter().any(|m| m.message == message)
         }
-        
+
         pub fn has_diagnostic(&self, message: &str) -> bool {
-            self.diagnostics.borrow().iter().any(|m| m.message == message)
+            self.diagnostics
+                .borrow()
+                .iter()
+                .any(|m| m.message == message)
         }
 
         pub fn reset(&self) {

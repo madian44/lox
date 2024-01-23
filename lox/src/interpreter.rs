@@ -1,12 +1,14 @@
+mod class;
 mod environment;
 mod function;
+mod instance;
 mod lox_type;
 mod native_functions;
 mod unwind;
 
+use crate::interpreter::lox_type::Callable;
 use crate::{expr, location, reporter, stmt, token};
 use std::collections::{HashMap, LinkedList};
-use std::rc;
 
 pub fn interpret(
     reporter: &dyn reporter::Reporter,
@@ -16,16 +18,16 @@ pub fn interpret(
     let mut environment = environment::Environment::new();
     Interpreter::define_native_functions(&mut environment);
 
-    let _ = interpret_with_environment(reporter, depths, environment, &statements);
+    let _ = interpret_with_environment(reporter, depths, &mut environment, &statements);
 }
 
 fn interpret_with_environment(
     reporter: &dyn reporter::Reporter,
     depths: &HashMap<usize, usize>,
-    environment: environment::Environment,
+    environment: &mut environment::Environment,
     statements: &LinkedList<stmt::Stmt>,
 ) -> Result<(), unwind::Unwind> {
-    let interpreter = Interpreter::build(reporter, depths, statements);
+    let interpreter = Interpreter::new(reporter, depths, statements);
 
     interpreter.interpret_statements(environment)
 }
@@ -37,7 +39,7 @@ struct Interpreter<'r> {
 }
 
 impl<'r> Interpreter<'r> {
-    fn build(
+    fn new(
         reporter: &'r dyn reporter::Reporter,
         depths: &'r HashMap<usize, usize>,
         statements: &'r LinkedList<stmt::Stmt>,
@@ -50,21 +52,15 @@ impl<'r> Interpreter<'r> {
     }
 
     fn define_native_functions(environment: &mut environment::Environment) {
-        environment.define(
-            "clock",
-            lox_type::LoxType::NativeFunction {
-                name: "clock".to_string(),
-                callable: rc::Rc::new(Box::new(native_functions::Clock)),
-            },
-        );
+        environment.define("clock", native_functions::clock());
     }
 
     fn interpret_statements(
         &self,
-        mut environment: environment::Environment,
+        environment: &mut environment::Environment,
     ) -> Result<(), unwind::Unwind> {
         for statement in self.statements {
-            match self.evaluate_stmt(&mut environment, statement) {
+            match self.evaluate_stmt(environment, statement) {
                 Err(unwind::Unwind::WithError(message)) => {
                     self.reporter.add_message(&message);
                     return Err(unwind::Unwind::WithError(message));
@@ -85,12 +81,13 @@ impl<'r> Interpreter<'r> {
     ) -> Result<(), unwind::Unwind> {
         match statement {
             stmt::Stmt::Block { statements } => self.evaluate_stmt_block(environment, statements),
+            stmt::Stmt::Class { name, methods } => {
+                self.evalute_stmt_class(environment, name, methods)
+            }
             stmt::Stmt::Expression { expression } => {
                 self.evaluate_stmt_expression(environment, expression)
             }
-            stmt::Stmt::Function { name, params, body } => {
-                self.evaluate_stmt_function(environment, name, params, body)
-            }
+            stmt::Stmt::Function { function } => self.evaluate_stmt_function(environment, function),
             stmt::Stmt::If {
                 condition,
                 then_branch,
@@ -121,14 +118,47 @@ impl<'r> Interpreter<'r> {
         Ok(())
     }
 
+    fn evalute_stmt_class(
+        &self,
+        environment: &mut environment::Environment,
+        name: &token::Token,
+        methods: &LinkedList<stmt::Stmt>,
+    ) -> Result<(), unwind::Unwind> {
+        environment.define(&name.lexeme, lox_type::LoxType::Nil);
+
+        let methods = methods
+            .iter()
+            .map(|method| {
+                if let stmt::Stmt::Function { function } = method {
+                    let f = function::Function::new(
+                        environment,
+                        function.clone(),
+                        function.name().lexeme == "init",
+                    );
+                    (
+                        f.name().to_string(),
+                        lox_type::LoxType::Function { function: f },
+                    )
+                } else {
+                    panic!("Unexpected statement")
+                }
+            })
+            .collect::<HashMap<String, lox_type::LoxType>>();
+
+        let class = class::Class::new(&name.lexeme, methods);
+        let class = lox_type::LoxType::Class { class };
+        let _ = environment.assign_at(Some(0), &name.lexeme, class);
+        Ok(())
+    }
+
     fn evaluate_stmt_expression(
         &self,
         environment: &mut environment::Environment,
         expr: &expr::Expr,
     ) -> Result<(), unwind::Unwind> {
         match self.evaluate_expr(environment, expr) {
-            Ok(r) => {
-                self.reporter.add_message(&format!("[interpreter] {r}"));
+            Ok(_r) => {
+                //                self.reporter.add_message(&format!("[interpreter] {r}"));
                 Ok(())
             }
             Err(err) => Err(err),
@@ -138,18 +168,12 @@ impl<'r> Interpreter<'r> {
     fn evaluate_stmt_function(
         &self,
         environment: &mut environment::Environment,
-        name: &token::Token,
-        params: &LinkedList<token::Token>,
-        body: &LinkedList<stmt::Stmt>,
+        function: &stmt::function::Function,
     ) -> Result<(), unwind::Unwind> {
-        let function_name = name.lexeme.clone();
-        let function =
-            function::Function::build(environment, name.clone(), params.clone(), (*body).clone());
-        let function = lox_type::LoxType::Function {
-            name: function_name.clone(),
-            callable: rc::Rc::new(Box::new(function)),
-        };
-        environment.define(&function_name, function);
+        let name = function.name().clone();
+        let function = function::Function::new(environment, function.clone(), false);
+        let function = lox_type::LoxType::Function { function };
+        environment.define(&name.lexeme, function);
         Ok(())
     }
 
@@ -240,6 +264,9 @@ impl<'r> Interpreter<'r> {
                 arguments,
                 ..
             } => self.evaluate_expr_call(environment, callee, paren, arguments),
+            expr::Expr::Get { object, name, .. } => {
+                self.evaluate_expr_get(environment, object, name)
+            }
             expr::Expr::Grouping { expression, .. } => self.evaluate_expr(environment, expression),
             expr::Expr::Literal { value, .. } => self.evaluate_expr_literal(expression, value),
             expr::Expr::Logical {
@@ -248,6 +275,15 @@ impl<'r> Interpreter<'r> {
                 right,
                 ..
             } => self.evaluate_expr_logical(environment, left, operator, right),
+            expr::Expr::Set {
+                object,
+                name,
+                value,
+                ..
+            } => self.evaluate_expr_set(environment, object, name, value),
+            expr::Expr::This { id, keyword, .. } => {
+                self.evaluate_expr_this(environment, id, keyword)
+            }
             expr::Expr::Unary {
                 operator, right, ..
             } => self.evaluate_expr_unary(environment, expression, operator, right),
@@ -267,7 +303,7 @@ impl<'r> Interpreter<'r> {
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
         let value = self.evaluate_expr(environment, value)?;
         if let Err(unwind::Unwind::WithError(message)) =
-            environment.assign_at(self.depths.get(id).cloned(), name, value.clone())
+            environment.assign_at(self.depths.get(id).cloned(), &name.lexeme, value.clone())
         {
             self.add_diagnostic(expression, message)?;
         }
@@ -341,8 +377,8 @@ impl<'r> Interpreter<'r> {
         let result = self.call_function(actual_callee, callee, args);
         match result {
             Err(unwind::Unwind::WithError(_)) => result,
+            Err(unwind::Unwind::WithResult(_)) => result,
             Ok(value) => Ok(value),
-            _ => unreachable!(),
         }
     }
 
@@ -367,9 +403,9 @@ impl<'r> Interpreter<'r> {
         };
 
         match callee {
-            lox_type::LoxType::Function { name: _, callable } => {
-                check_arity(callable.arity())?;
-                match callable.call(self.reporter, self.depths, arguments) {
+            lox_type::LoxType::Function { function, .. } => {
+                check_arity(function.arity())?;
+                match function.call(self.reporter, self.depths, arguments) {
                     Err(unwind::Unwind::WithError(message)) => {
                         Err(unwind::Unwind::WithError(message))
                     }
@@ -377,13 +413,31 @@ impl<'r> Interpreter<'r> {
                     _ => Ok(lox_type::LoxType::Nil),
                 }
             }
-            lox_type::LoxType::NativeFunction { name: _, callable } => {
+            lox_type::LoxType::NativeFunction { callable, .. } => {
                 check_arity(callable.arity())?;
                 callable.call(arguments)
+            }
+            lox_type::LoxType::Class { class } => {
+                check_arity(class.arity())?;
+                class.call(self.reporter, self.depths, arguments)
             }
             _ => Err(self
                 .add_diagnostic(expr, "Can only call functions and classes".to_string())
                 .unwrap_err()),
+        }
+    }
+
+    fn evaluate_expr_get(
+        &self,
+        environment: &mut environment::Environment,
+        expression: &expr::Expr,
+        name: &token::Token,
+    ) -> Result<lox_type::LoxType, unwind::Unwind> {
+        let object = self.evaluate_expr(environment, expression)?;
+        match lox_type::LoxType::get_instance_value(&object, &name.lexeme) {
+            Ok(value) => Ok(value),
+            Err(unwind::Unwind::WithError(message)) => self.add_diagnostic(expression, message),
+            _ => unreachable!(),
         }
     }
 
@@ -421,6 +475,36 @@ impl<'r> Interpreter<'r> {
         }
 
         self.evaluate_expr(environment, right)
+    }
+
+    fn evaluate_expr_set(
+        &self,
+        environment: &mut environment::Environment,
+        expression: &expr::Expr,
+        name: &token::Token,
+        value: &expr::Expr,
+    ) -> Result<lox_type::LoxType, unwind::Unwind> {
+        let instance = self.evaluate_expr(environment, expression)?;
+        let value = self.evaluate_expr(environment, value)?;
+        if let Err(unwind::Unwind::WithError(message)) =
+            lox_type::LoxType::set_instance_value(&instance, &name.lexeme, value.clone())
+        {
+            self.add_diagnostic(expression, message)?;
+        }
+        Ok(value)
+    }
+
+    fn evaluate_expr_this(
+        &self,
+        environment: &mut environment::Environment,
+        id: &usize,
+        keyword: &token::Token,
+    ) -> Result<lox_type::LoxType, unwind::Unwind> {
+        match self.look_up_variable(environment, id, keyword) {
+            Ok(value) => Ok(value),
+            Err(unwind::Unwind::WithError(message)) => self.add_diagnostic(keyword, message),
+            _ => unreachable!(),
+        }
     }
 
     fn evaluate_expr_unary(
@@ -462,16 +546,16 @@ impl<'r> Interpreter<'r> {
         name: &token::Token,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
         let depth = self.depths.get(id).cloned();
-        environment.get_at(depth, name)
+        environment.get_at(depth, &name.lexeme)
     }
 
     fn add_diagnostic(
         &self,
-        expr: &expr::Expr,
+        provider: impl location::ProvideLocation,
         message: String,
     ) -> Result<lox_type::LoxType, unwind::Unwind> {
         self.reporter
-            .add_diagnostic(get_start_location(expr), get_end_location(expr), &message);
+            .add_diagnostic(provider.start(), provider.end(), &message);
         Err(unwind::Unwind::WithError(message))
     }
 
@@ -538,32 +622,6 @@ fn is_equal(left: &lox_type::LoxType, right: &lox_type::LoxType) -> bool {
     false
 }
 
-fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
-    match expr {
-        expr::Expr::Assign { name, .. } => &name.start,
-        expr::Expr::Binary { left, .. } => get_start_location(left),
-        expr::Expr::Call { callee, .. } => get_start_location(callee),
-        expr::Expr::Grouping { expression, .. } => get_start_location(expression),
-        expr::Expr::Literal { value, .. } => &value.start,
-        expr::Expr::Logical { left, .. } => get_start_location(left),
-        expr::Expr::Unary { operator, .. } => &operator.start,
-        expr::Expr::Variable { name, .. } => &name.start,
-    }
-}
-
-fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
-    match expr {
-        expr::Expr::Assign { value, .. } => get_end_location(value),
-        expr::Expr::Binary { right, .. } => get_end_location(right),
-        expr::Expr::Call { paren, .. } => &paren.end,
-        expr::Expr::Grouping { expression, .. } => get_end_location(expression),
-        expr::Expr::Literal { value, .. } => &value.end,
-        expr::Expr::Logical { right, .. } => get_end_location(right),
-        expr::Expr::Unary { right, .. } => get_end_location(right),
-        expr::Expr::Variable { name, .. } => &name.end,
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -600,7 +658,7 @@ mod test {
 
     #[test]
     fn test_check_string_operand() {
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
             id: 0,
@@ -640,7 +698,7 @@ mod test {
 
         let depths = HashMap::<usize, usize>::new();
         let statements = LinkedList::<stmt::Stmt>::new();
-        let interpreter = Interpreter::build(&reporter, &depths, &statements);
+        let interpreter = Interpreter::new(&reporter, &depths, &statements);
 
         for (value, expected_result) in &tests {
             reporter.reset();
@@ -655,7 +713,7 @@ mod test {
 
     #[test]
     fn test_check_number_operand() {
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
         let blank_location = FileLocation::new(0, 0);
         let expression = expr::Expr::Literal {
             id: 0,
@@ -695,7 +753,7 @@ mod test {
 
         let depths = HashMap::<usize, usize>::new();
         let statements = LinkedList::<stmt::Stmt>::new();
-        let interpreter = Interpreter::build(&reporter, &depths, &statements);
+        let interpreter = Interpreter::new(&reporter, &depths, &statements);
         for (value, expected_result) in &tests {
             reporter.reset();
             assert_eq!(
@@ -770,11 +828,11 @@ mod test {
     }
 
     fn test_expressions(tests: Vec<(&str, Result<lox_type::LoxType, unwind::Unwind>)>) {
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
         let depths = HashMap::<usize, usize>::new();
         let statements = LinkedList::<stmt::Stmt>::new();
         for (src, expected_result) in tests {
-            let interpreter = Interpreter::build(&reporter, &depths, &statements);
+            let interpreter = Interpreter::new(&reporter, &depths, &statements);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -854,6 +912,46 @@ mod test {
     }
 
     #[test]
+    fn test_logical() {
+        let tests = vec![
+            (
+                "true and true;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(true)),
+            ),
+            (
+                "true and false;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(false)),
+            ),
+            (
+                "false and true;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(false)),
+            ),
+            (
+                "false and false;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(false)),
+            ),
+            (
+                "true or true;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(true)),
+            ),
+            (
+                "true or false;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(true)),
+            ),
+            (
+                "false or true;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(true)),
+            ),
+            (
+                "false or false;",
+                Ok::<lox_type::LoxType, unwind::Unwind>(lox_type::LoxType::Boolean(false)),
+            ),
+        ];
+
+        test_expressions(tests);
+    }
+
+    #[test]
     fn test_unary() {
         let tests = vec![
             (
@@ -898,12 +996,11 @@ mod test {
             ("var b;", "b", lox_type::LoxType::Nil),
         ];
 
-        let blank_location = location::FileLocation::new(0, 0);
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
         let depths = HashMap::<usize, usize>::new();
         let statements = LinkedList::<stmt::Stmt>::new();
         for (src, key, expected_value) in tests {
-            let interpreter = Interpreter::build(&reporter, &depths, &statements);
+            let interpreter = Interpreter::new(&reporter, &depths, &statements);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -918,14 +1015,7 @@ mod test {
                     {
                         panic!("Unexpected error for '{}': {}", src, msg);
                     }
-                    let key = token::Token::new(
-                        token::TokenType::Identifier,
-                        key,
-                        blank_location,
-                        blank_location,
-                        None,
-                    );
-                    match environment.get_at(None, &key) {
+                    match environment.get_at(None, key) {
                         Ok(value) => {
                             assert_eq!(value, expected_value, "Unexpected value for '{}'", src)
                         }
@@ -948,8 +1038,8 @@ mod test {
     fn test_stmt() {
         let tests = vec![
             ("print \"value\";", "[print] \"value\""),
-            ("10 + 10;", "[interpreter] 20"),
-            ("{true == false;} ", "[interpreter] false"),
+            ("print 10 + 10;", "[print] 20"),
+            ("{print true == false;} ", "[print] false"),
             (
                 "if (true) print \"then branch\"; ",
                 "[print] \"then branch\"",
@@ -962,11 +1052,11 @@ mod test {
             ("print nil or \"yes\" ; ", "[print] \"yes\""),
         ];
 
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
         let depths = HashMap::<usize, usize>::new();
         let statements = LinkedList::<stmt::Stmt>::new();
         for (src, expected_message) in tests {
-            let interpreter = Interpreter::build(&reporter, &depths, &statements);
+            let interpreter = Interpreter::new(&reporter, &depths, &statements);
             let mut environment = environment::Environment::new();
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);
@@ -1017,9 +1107,37 @@ mod test {
                 "fun count(n) {if (n> 1) count(n-1); print n; } count(3) ;",
                 "[print] 3",
             ),
+            (
+                "class Bagel{} var b = Bagel() ; b.val = \"hello field\" ; print b.val ;",
+                "[print] \"hello field\"",
+            ),
+            (
+                "class Box {} fun notMethod(argument) { print \"called with '\" + argument + \"'\"; } var box = Box() ; box.function = notMethod; box.function(\"hello\");",
+                "[print] \"called with 'hello'\"",
+            ),
+            (
+                "class Bacon { eat() { print \"chewy\"; } } Bacon().eat();",
+                "[print] \"chewy\"",
+            ),
+            (
+                "fun bacon() { return \"chewy\"; } print bacon();",
+                "[print] \"chewy\"",
+            ),
+            (
+                "class Bacon { init() { this.how = \"chewy\"; } } var b = Bacon(); print b.how;",
+                "[print] \"chewy\"",
+            ),
+            (
+                "print (10+10)+2;",
+                "[print] 22",
+            ),
+            (
+                "class Thing {} var a = Thing(); print (a == a);",
+                "[print] false",
+            ),
         ];
 
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
         for (src, expected_message) in tests {
             reporter.reset();
             let tokens = scanner::scan_tokens(&reporter, src);

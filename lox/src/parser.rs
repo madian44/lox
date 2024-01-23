@@ -106,7 +106,9 @@ impl<'k> Parser<'k> {
     }
 
     fn declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
-        let result = if self.consume_matching_token(&token::TokenType::Fun) {
+        let result = if self.consume_matching_token(&token::TokenType::Class) {
+            self.class_declaration(data)
+        } else if self.consume_matching_token(&token::TokenType::Fun) {
             self.function_declaration(data, "function")
         } else if self.consume_matching_token(&token::TokenType::Var) {
             self.variable_declaration(data)
@@ -117,6 +119,24 @@ impl<'k> Parser<'k> {
             self.synchronize();
         }
         result
+    }
+
+    fn class_declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
+        self.consume_token(&token::TokenType::Identifier, "Expect class name")?;
+        let name = self.take_current_token()?;
+        self.consume_token(
+            &token::TokenType::LeftBrace,
+            "Expect '{{' before class body",
+        )?;
+        let mut methods = LinkedList::new();
+        while !self.check_next_token(&token::TokenType::RightBrace) && !self.is_at_end() {
+            methods.push_back(self.function_declaration(data, "method")?);
+        }
+        self.consume_token(
+            &token::TokenType::RightBrace,
+            "Expect '}}' after class body",
+        )?;
+        Ok(stmt::Stmt::Class { name, methods })
     }
 
     fn function_declaration(&mut self, data: &Data, kind: &str) -> Result<stmt::Stmt, ParseError> {
@@ -159,11 +179,7 @@ impl<'k> Parser<'k> {
             &format!("Expect '{{' before {} body", kind),
         )?;
         if let stmt::Stmt::Block { statements } = self.block_statement(data)? {
-            Ok(stmt::Stmt::Function {
-                name,
-                params,
-                body: statements,
-            })
+            Ok(stmt::Stmt::new_function(name, params, statements))
         } else {
             Err(ParseError {
                 message: format!("Expect a block {} body", kind),
@@ -268,7 +284,7 @@ impl<'k> Parser<'k> {
         let condition = if !self.check_next_token(&token::TokenType::Semicolon) {
             self.expression(data)?
         } else {
-            expr::Expr::build_literal(token::Token::new(
+            expr::Expr::new_literal(token::Token::new(
                 token::TokenType::True,
                 "true",
                 self.get_nearby_location()
@@ -355,7 +371,9 @@ impl<'k> Parser<'k> {
             let value = self.assignment_expression(data)?;
 
             if let expr::Expr::Variable { name, .. } = expr {
-                return Ok(expr::Expr::build_assign(name, value));
+                return Ok(expr::Expr::new_assign(name, value));
+            } else if let expr::Expr::Get { object, name, .. } = expr {
+                return Ok(expr::Expr::new_set(*object, name, value));
             }
             let _ = self.add_diagnostic("Invalid assignment target");
         }
@@ -368,7 +386,7 @@ impl<'k> Parser<'k> {
         while self.consume_matching_token(&token::TokenType::Or) {
             let operator = self.take_current_token()?;
             let right = self.and_expression(data)?;
-            expr = expr::Expr::build_logical(expr, operator, right);
+            expr = expr::Expr::new_logical(expr, operator, right);
         }
 
         Ok(expr)
@@ -380,7 +398,7 @@ impl<'k> Parser<'k> {
         while self.consume_matching_token(&token::TokenType::And) {
             let operator = self.take_current_token()?;
             let right = self.equality_expression(data)?;
-            expr = expr::Expr::build_logical(expr, operator, right);
+            expr = expr::Expr::new_logical(expr, operator, right);
         }
 
         Ok(expr)
@@ -392,7 +410,7 @@ impl<'k> Parser<'k> {
         while self.consume_any_matching_token(&data.equality_tokens) {
             let operator = self.take_current_token()?;
             let right = self.comparison_expression(data)?;
-            expr = expr::Expr::build_binary(expr, operator, right);
+            expr = expr::Expr::new_binary(expr, operator, right);
         }
 
         Ok(expr)
@@ -404,7 +422,7 @@ impl<'k> Parser<'k> {
         while self.consume_any_matching_token(&data.comparison_tokens) {
             let operator = self.take_current_token()?;
             let right = self.term_expression(data)?;
-            expr = expr::Expr::build_binary(expr, operator, right);
+            expr = expr::Expr::new_binary(expr, operator, right);
         }
 
         Ok(expr)
@@ -416,7 +434,7 @@ impl<'k> Parser<'k> {
         while self.consume_any_matching_token(&data.term_tokens) {
             let operator = self.take_current_token()?;
             let right = self.factor_expression(data)?;
-            expr = expr::Expr::build_binary(expr, operator, right);
+            expr = expr::Expr::new_binary(expr, operator, right);
         }
 
         Ok(expr)
@@ -428,7 +446,7 @@ impl<'k> Parser<'k> {
         while self.consume_any_matching_token(&data.factor_tokens) {
             let operator = self.take_current_token()?;
             let right = self.unary_expression(data)?;
-            expr = expr::Expr::build_binary(expr, operator, right);
+            expr = expr::Expr::new_binary(expr, operator, right);
         }
 
         Ok(expr)
@@ -438,7 +456,7 @@ impl<'k> Parser<'k> {
         if self.consume_any_matching_token(&data.unary_tokens) {
             let operator = self.take_current_token()?;
             let right = self.unary_expression(data)?;
-            return Ok(expr::Expr::build_unary(operator, right));
+            return Ok(expr::Expr::new_unary(operator, right));
         }
         self.call_expression(data)
     }
@@ -449,6 +467,13 @@ impl<'k> Parser<'k> {
         loop {
             if self.consume_matching_token(&token::TokenType::LeftParen) {
                 expr = self.finish_call(data, expr)?;
+            } else if self.consume_matching_token(&token::TokenType::Dot) {
+                self.consume_token(
+                    &token::TokenType::Identifier,
+                    "Expect property name after '.'",
+                )?;
+                let name = self.take_current_token()?;
+                expr = expr::Expr::new_get(expr, name);
             } else {
                 break;
             }
@@ -480,22 +505,26 @@ impl<'k> Parser<'k> {
         )?;
         let paren = self.take_current_token().unwrap();
 
-        Ok(expr::Expr::build_call(callee, paren, arguments))
+        Ok(expr::Expr::new_call(callee, paren, arguments))
     }
 
     fn primary_expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
         if self.consume_any_matching_token(&data.primary_tokens) {
-            return Ok(expr::Expr::build_literal(self.take_current_token()?));
+            return Ok(expr::Expr::new_literal(self.take_current_token()?));
+        }
+
+        if self.consume_matching_token(&token::TokenType::This) {
+            return Ok(expr::Expr::new_this(self.take_current_token()?));
         }
 
         if self.consume_matching_token(&token::TokenType::Identifier) {
-            return Ok(expr::Expr::build_variable(self.take_current_token()?));
+            return Ok(expr::Expr::new_variable(self.take_current_token()?));
         }
 
         if self.consume_matching_token(&token::TokenType::LeftParen) {
             let expr = self.expression(data)?;
             self.consume_token(&token::TokenType::RightParen, "Expect ')' after expression")?;
-            return Ok(expr::Expr::build_grouping(expr));
+            return Ok(expr::Expr::new_grouping(expr));
         }
 
         self.add_diagnostic("Expect expression")
@@ -624,7 +653,7 @@ mod test {
 
     #[test]
     fn production_tests() {
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
 
         let tests = vec![
             ("10 + 10;", "(; (+ 10 10))\n"),
@@ -716,6 +745,29 @@ mod test {
                 |    (print d)
                 |)\n",
             ),
+            (
+                "class a_class { method_1() {} method_2(a) {}}",
+                "(class a_class
+                |    (fun method_1()
+                |    )
+                |    (fun method_2(a)
+                |    )
+                |)\n",
+            ),
+            (
+                "fun callee() { return 10; }",
+                "(fun callee()
+                |    (return 10)
+                |)\n",
+            ),
+            (
+                "class a_class { init() {this.value = 10;}}",
+                "(class a_class
+                |    (fun init()
+                |        (; (= this value 10)
+                |    )
+                |)\n",
+            ),
         ];
 
         for (src, expected_parse) in tests {
@@ -749,7 +801,7 @@ mod test {
 
     #[test]
     fn errors() {
-        let reporter = TestReporter::build();
+        let reporter = TestReporter::new();
 
         let tests = vec![
             ("/ \"10\"", "Expect expression"),
@@ -791,6 +843,15 @@ mod test {
                 "fun callee ( a ) print a;",
                 "Expect '{' before function body",
             ),
+            ("class { method_1() {} method_2(a) {}}", "Expect class name"),
+            (
+                "class a_class method_1() {} method_2(a) {}}",
+                "Expect '{{' before class body",
+            ),
+            (
+                "class a_class {method_1() {} method_2(a) {}",
+                "Expect '}}' after class body",
+            ),
         ];
 
         for (src, expected_message) in tests {
@@ -799,7 +860,7 @@ mod test {
             let _ = parse(&reporter, tokens);
             if reporter.diagnostics_len() == 0 {
                 reporter.print_contents();
-                panic!("Unexpected diagnostics for '{}'", src);
+                panic!("Unexpectedly no diagnostics for '{}'", src);
             }
 
             assert_eq!(

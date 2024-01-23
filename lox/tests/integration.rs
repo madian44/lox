@@ -4,39 +4,39 @@ use lox::Reporter;
 
 #[test]
 fn test_statements() {
-    let mut reporter = common::TestReporter::build();
+    let mut reporter = common::TestReporter::new();
     let tests = vec![
-        // ("var a = clock(); print a;", "[print] 10"),
+        //("var a = clock(); print a;", "[print] 10"),
         (
-            "\"hello,\" + \" world\";",
-            vec!["[interpreter] \"hello, world\""],
+            "print \"hello,\" + \" world\";",
+            vec!["[print] \"hello, world\""],
         ),
-        ("10 + 10;", vec!["[interpreter] 20"]),
-        ("10 - 5;", vec!["[interpreter] 5"]),
-        ("10 > 5;", vec!["[interpreter] true"]),
-        ("5 > 5;", vec!["[interpreter] false"]),
-        ("5 >= 5;", vec!["[interpreter] true"]),
-        ("\"a string\";", vec!["[interpreter] \"a string\""]),
-        ("10.5 ;", vec!["[interpreter] 10.5"]),
-        ("true ;", vec!["[interpreter] true"]),
-        ("false ;", vec!["[interpreter] false"]),
-        ("nil ;", vec!["[interpreter] nil"]),
-        ("!true ;", vec!["[interpreter] false"]),
-        ("!!true ;", vec!["[interpreter] true"]),
-        ("-3.45 ;", vec!["[interpreter] -3.45"]),
-        ("5 == 5 ;", vec!["[interpreter] true"]),
-        ("5 == 4 ;", vec!["[interpreter] false"]),
-        ("\"hello\" == \"hello\";", vec!["[interpreter] true"]),
-        ("\"hello\" == \"world\";", vec!["[interpreter] false"]),
-        ("4 / 4;", vec!["[interpreter] 1"]),
-        ("6 / 4;", vec!["[interpreter] 1.5"]),
-        ("2 * 2;", vec!["[interpreter] 4"]),
-        ("5 < 5;", vec!["[interpreter] false"]),
-        ("5 <= 5;", vec!["[interpreter] true"]),
-        ("(5 <= 5);", vec!["[interpreter] true"]),
-        ("!\"string\";", vec!["[interpreter] false"]),
-        ("!!\"string\";", vec!["[interpreter] true"]),
-        ("((10 - 5) + 1) / (2 * 3);", vec!["[interpreter] 1"]),
+        ("print 10 + 10;", vec!["[print] 20"]),
+        ("print 10 - 5;", vec!["[print] 5"]),
+        ("print 10 > 5;", vec!["[print] true"]),
+        ("print 5 > 5;", vec!["[print] false"]),
+        ("print 5 >= 5;", vec!["[print] true"]),
+        ("print \"a string\";", vec!["[print] \"a string\""]),
+        ("print 10.5 ;", vec!["[print] 10.5"]),
+        ("print true ;", vec!["[print] true"]),
+        ("print false ;", vec!["[print] false"]),
+        ("print nil ;", vec!["[print] nil"]),
+        ("print !true ;", vec!["[print] false"]),
+        ("print !!true ;", vec!["[print] true"]),
+        ("print -3.45 ;", vec!["[print] -3.45"]),
+        ("print 5 == 5 ;", vec!["[print] true"]),
+        ("print 5 == 4 ;", vec!["[print] false"]),
+        ("print \"hello\" == \"hello\";", vec!["[print] true"]),
+        ("print \"hello\" == \"world\";", vec!["[print] false"]),
+        ("print 4 / 4;", vec!["[print] 1"]),
+        ("print 6 / 4;", vec!["[print] 1.5"]),
+        ("print 2 * 2;", vec!["[print] 4"]),
+        ("print 5 < 5;", vec!["[print] false"]),
+        ("print 5 <= 5;", vec!["[print] true"]),
+        ("print (5 <= 5);", vec!["[print] true"]),
+        ("print !\"string\";", vec!["[print] false"]),
+        ("print !!\"string\";", vec!["[print] true"]),
+        ("print ((10 - 5) + 1) / (2 * 3);", vec!["[print] 1"]),
         ("print ((10 - 5) + 1) / (2 * 3);", vec!["[print] 1"]),
         ("var a = 1 ; { a = 2; print a;}", vec!["[print] 2"]),
         (
@@ -94,6 +94,46 @@ fn test_statements() {
             print outer;",
             vec!["[print] 1", "[print] \"outer str\""],
         ),
+        (
+            "class Thing {
+                getCallback() {
+                    this.message = \"Hello\";
+                    fun localFunction() {
+                        print this.message;
+                    }
+                    return localFunction;
+                }
+            }
+            var callback = Thing().getCallback();
+            callback();",
+            vec!["[print] \"Hello\""],
+        ),
+        (
+            "class Thing {
+                init(message) {
+                    this.message = message;
+                }
+                get() {
+                    return \"Hello \" + this.message;
+                }
+            }
+            var val = Thing(\"Bob\");
+            var i = val.get();
+            print i;",
+            vec!["[print] \"Hello Bob\""],
+        ),
+        (
+            "class Thing {
+                init(message) {
+                    this.message = message;
+                    return;
+                }
+            }
+            var val = Thing(\"Bob\");
+            var i = val.init(\"John\");
+            print i.message;",
+            vec!["[print] \"John\""],
+        ),
     ];
 
     for (source, expected_messages) in tests {
@@ -116,7 +156,7 @@ fn test_statements() {
 
 #[test]
 fn test_failures() {
-    let mut reporter = common::TestReporter::build();
+    let mut reporter = common::TestReporter::new();
     let tests = vec![
         (
             "\"hello,\" + 10 ;",
@@ -200,6 +240,118 @@ fn test_failures() {
                     line_offset: 24,
                 },
                 message: "Can only call functions and classes".to_string(),
+            },
+        ),
+        (
+            "class Example { init(param){} } var e = Example();",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 40,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 47,
+                },
+                message: "Expected 1 arguments but got 0".to_string(),
+            },
+        ),
+        (
+            "class Example { init(param){} } var e = Example(1, 2);",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 40,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 47,
+                },
+                message: "Expected 1 arguments but got 2".to_string(),
+            },
+        ),
+        (
+            "class Example { error(param){this.error();} } Example().error(1);",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 29,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 39,
+                },
+                message: "Expected 1 arguments but got 0".to_string(),
+            },
+        ),
+        (
+            "class Example {} Example().error;",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 17,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 26,
+                },
+                message: "Undefined property 'error'".to_string(),
+            },
+        ),
+        (
+            "var value = 1; print value.field;",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 21,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 26,
+                },
+                message: "Only instances have fields".to_string(),
+            },
+        ),
+        (
+            "var value = 1; value.field = 2;",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 15,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 20,
+                },
+                message: "Only instances have fields".to_string(),
+            },
+        ),
+        (
+            "fun error() { print this.fred; } error();",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 20,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 24,
+                },
+                message: "Undefined variable 'this'".to_string(),
+            },
+        ),
+        (
+            "class Example{ init() { this.dest = this.src; }} var e = Example();",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 36,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 40,
+                },
+                message: "Undefined property 'src'".to_string(),
             },
         ),
     ];
