@@ -8,6 +8,18 @@ fn test_statements() {
     let tests = vec![
         //("var a = clock(); print a;", "[print] 10"),
         (
+            "class Person {
+                sayName() {
+                    print this.name;
+                }
+            }
+            var jane = Person();
+            jane.name = \"jane\";
+            var m = jane.sayName;
+            m();",
+            vec!["[print] \"jane\""],
+        ),
+        (
             "print \"hello,\" + \" world\";",
             vec!["[print] \"hello, world\""],
         ),
@@ -133,6 +145,46 @@ fn test_statements() {
             var i = val.init(\"John\");
             print i.message;",
             vec!["[print] \"John\""],
+        ),
+        (
+            "class Doughnut {
+                cook() {
+                    print \"Fry until golden brown\";
+                }
+            }
+            class BostonCream < Doughnut {}
+            BostonCream().cook();",
+            vec!["[print] \"Fry until golden brown\""],
+        ),
+        (
+            "class Doughnut {
+                cook() {
+                    print \"Fry until golden brown\";
+                }
+            }
+            class BostonCream < Doughnut {
+                cook() {
+                    super.cook();
+                    print \"Pipe full of custard and coat with chocolate\";
+                }
+            }
+            BostonCream().cook();",
+            vec![
+                "[print] \"Fry until golden brown\"",
+                "[print] \"Pipe full of custard and coat with chocolate\"",
+            ],
+        ),
+        (
+            "class Person {
+                sayName() {
+                    print this.name;
+                }
+            }
+            var jane = Person();
+            jane.name = \"jane\";
+            var m = jane.sayName;
+            m();",
+            vec!["[print] \"jane\""],
         ),
     ];
 
@@ -337,7 +389,7 @@ fn test_failures() {
                     line_number: 0,
                     line_offset: 24,
                 },
-                message: "Undefined variable 'this'".to_string(),
+                message: "Cannot use 'this' outside of a class".to_string(),
             },
         ),
         (
@@ -352,6 +404,20 @@ fn test_failures() {
                     line_offset: 40,
                 },
                 message: "Undefined property 'src'".to_string(),
+            },
+        ),
+        (
+            "var NotAClass = \"I'm not a class\"; class Example < NotAClass {}",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 51,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 60,
+                },
+                message: "Superclass must be a class".to_string(),
             },
         ),
     ];

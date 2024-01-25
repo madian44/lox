@@ -23,6 +23,13 @@ enum FunctionType {
     Method,
 }
 
+#[derive(Copy, Clone, PartialEq)]
+enum ClassType {
+    None,
+    Class,
+    Subclass,
+}
+
 struct Scopes {
     scopes: LinkedList<HashMap<String, bool>>,
 }
@@ -91,6 +98,7 @@ struct Resolver<'r> {
     scopes: Scopes,
     depths: HashMap<usize, usize>,
     current_function: FunctionType,
+    current_class: ClassType,
 }
 
 pub fn resolve(
@@ -111,6 +119,7 @@ impl<'r> Resolver<'r> {
             scopes: Scopes::new(),
             depths: HashMap::new(),
             current_function: FunctionType::None,
+            current_class: ClassType::None,
         }
     }
 
@@ -123,7 +132,12 @@ impl<'r> Resolver<'r> {
     fn resolve_stmt(&mut self, statement: &stmt::Stmt) {
         match statement {
             stmt::Stmt::Block { statements } => self.resolve_stmt_block(statements),
-            stmt::Stmt::Class { name, methods, .. } => self.resolve_stmt_class(name, methods),
+            stmt::Stmt::Class {
+                name,
+                superclass,
+                methods,
+                ..
+            } => self.resolve_stmt_class(name, superclass, methods),
             stmt::Stmt::Expression { expression } => self.resolve_stmt_expression(expression),
             stmt::Stmt::Function { function } => self.resolve_stmt_function(function),
             stmt::Stmt::If {
@@ -150,6 +164,7 @@ impl<'r> Resolver<'r> {
             expr::Expr::Literal { value, .. } => self.resolve_expr_literal(value),
             expr::Expr::Logical { left, right, .. } => self.resolve_expr_logical(left, right),
             expr::Expr::Set { object, value, .. } => self.resolve_expr_set(object, value),
+            expr::Expr::Super { id, keyword, .. } => self.resolve_expr_super(id, keyword),
             expr::Expr::This { id, keyword, .. } => self.resolve_expr_this(id, keyword),
             expr::Expr::Unary { right, .. } => self.resolve_expr_unary(right),
             expr::Expr::Variable { id, name } => self.resolve_expr_variable(id, name),
@@ -162,12 +177,26 @@ impl<'r> Resolver<'r> {
         self.scopes.end();
     }
 
-    fn resolve_stmt_class(&mut self, name: &token::Token, methods: &LinkedList<stmt::Stmt>) {
+    fn resolve_stmt_class(
+        &mut self,
+        name: &token::Token,
+        superclass: &Option<expr::Expr>,
+        methods: &LinkedList<stmt::Stmt>,
+    ) {
+        let enclosing_class = self.current_class;
+        self.current_class = ClassType::Class;
+
         if let Err(e) = self.scopes.declare(name) {
             self.reporter
                 .add_diagnostic(&e.token.start, &e.token.end, &e.message);
         }
         self.scopes.define(&name.lexeme);
+
+        if let Some(superclass) = superclass {
+            self.resolve_superclass(name, superclass);
+            self.scopes.begin();
+            self.scopes.define("super");
+        }
 
         self.scopes.begin();
         self.scopes.define("this");
@@ -184,6 +213,26 @@ impl<'r> Resolver<'r> {
         }
 
         self.scopes.end();
+
+        if superclass.is_some() {
+            self.scopes.end();
+        }
+
+        self.current_class = enclosing_class;
+    }
+
+    fn resolve_superclass(&mut self, class_name: &token::Token, superclass: &expr::Expr) {
+        if let expr::Expr::Variable { name, .. } = superclass {
+            if class_name.lexeme == name.lexeme {
+                self.reporter.add_diagnostic(
+                    &name.start,
+                    &name.end,
+                    "A class cannot inherit from itself",
+                );
+            }
+        }
+        self.current_class = ClassType::Subclass;
+        self.resolve_expr(superclass);
     }
 
     fn resolve_stmt_expression(&mut self, expression: &expr::Expr) {
@@ -283,7 +332,19 @@ impl<'r> Resolver<'r> {
         self.resolve_expr(value);
     }
 
+    fn resolve_expr_super(&mut self, id: &usize, keyword: &token::Token) {
+        if self.current_class == ClassType::None {
+            self.add_diagnostic(keyword, "Cannot use 'super' outside of a class")
+        } else if self.current_class != ClassType::Subclass {
+            self.add_diagnostic(keyword, "Cannot use 'super' in a class with no superclass")
+        }
+        self.resolve_local(id, keyword);
+    }
+
     fn resolve_expr_this(&mut self, id: &usize, keyword: &token::Token) {
+        if self.current_class == ClassType::None {
+            self.add_diagnostic(keyword, "Cannot use 'this' outside of a class");
+        }
         self.resolve_local(id, keyword);
     }
 
@@ -504,6 +565,19 @@ mod test {
             (
                 "class Example { init() { return 10; } }",
                 "Cannot return a value from an initialiser",
+            ),
+            (
+                "class Example < Example { }",
+                "A class cannot inherit from itself",
+            ),
+            ("print this;", "Cannot use 'this' outside of a class"),
+            (
+                "print super.method;",
+                "Cannot use 'super' outside of a class",
+            ),
+            (
+                "class Example { error() { return super.bob; } }",
+                "Cannot use 'super' in a class with no superclass",
             ),
         ];
 

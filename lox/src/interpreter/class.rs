@@ -8,13 +8,19 @@ use std::rc::Rc;
 struct InternalClass {
     name: String,
     methods: HashMap<String, lox_type::LoxType>,
+    superclass: Option<Rc<InternalClass>>,
 }
 
 impl InternalClass {
-    fn new(name: &str, methods: HashMap<String, lox_type::LoxType>) -> Self {
+    fn new(
+        name: &str,
+        methods: HashMap<String, lox_type::LoxType>,
+        superclass: Option<Rc<InternalClass>>,
+    ) -> Self {
         Self {
             name: name.to_string(),
             methods,
+            superclass,
         }
     }
 
@@ -32,7 +38,10 @@ impl InternalClass {
     }
 
     fn find_method(&self, name: &str) -> Option<lox_type::LoxType> {
-        self.methods.get(name).cloned()
+        self.methods
+            .get(name)
+            .cloned()
+            .or_else(|| self.superclass.as_ref().and_then(|s| s.find_method(name)))
     }
 }
 
@@ -48,9 +57,19 @@ pub struct Class {
 }
 
 impl Class {
-    pub fn new(name: &str, methods: HashMap<String, lox_type::LoxType>) -> Self {
+    pub fn new(
+        name: &str,
+        methods: HashMap<String, lox_type::LoxType>,
+        superclass: Option<lox_type::LoxType>,
+    ) -> Self {
+        let superclass = if let Some(lox_type::LoxType::Class { class }) = superclass {
+            Some(class.class)
+        } else {
+            None
+        };
+
         Self {
-            class: Rc::new(InternalClass::new(name, methods)),
+            class: Rc::new(InternalClass::new(name, methods, superclass)),
         }
     }
 

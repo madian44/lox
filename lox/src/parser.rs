@@ -124,6 +124,14 @@ impl<'k> Parser<'k> {
     fn class_declaration(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
         self.consume_token(&token::TokenType::Identifier, "Expect class name")?;
         let name = self.take_current_token()?;
+
+        let superclass = if self.consume_matching_token(&token::TokenType::Less) {
+            self.consume_token(&token::TokenType::Identifier, "Expect superclass name")?;
+            Some(expr::Expr::new_variable(self.take_current_token()?))
+        } else {
+            None
+        };
+
         self.consume_token(
             &token::TokenType::LeftBrace,
             "Expect '{{' before class body",
@@ -136,7 +144,11 @@ impl<'k> Parser<'k> {
             &token::TokenType::RightBrace,
             "Expect '}}' after class body",
         )?;
-        Ok(stmt::Stmt::Class { name, methods })
+        Ok(stmt::Stmt::Class {
+            name,
+            superclass,
+            methods,
+        })
     }
 
     fn function_declaration(&mut self, data: &Data, kind: &str) -> Result<stmt::Stmt, ParseError> {
@@ -513,6 +525,17 @@ impl<'k> Parser<'k> {
             return Ok(expr::Expr::new_literal(self.take_current_token()?));
         }
 
+        if self.consume_matching_token(&token::TokenType::Super) {
+            let keyword = self.take_current_token()?;
+            self.consume_token(&token::TokenType::Dot, "Expect '.' after 'super'")?;
+            self.consume_token(
+                &token::TokenType::Identifier,
+                "Expect superclass method name",
+            )?;
+            let method = self.take_current_token().unwrap();
+            return Ok(expr::Expr::new_super(keyword, method));
+        }
+
         if self.consume_matching_token(&token::TokenType::This) {
             return Ok(expr::Expr::new_this(self.take_current_token()?));
         }
@@ -768,6 +791,12 @@ mod test {
                 |    )
                 |)\n",
             ),
+            (
+                "class sub_class < super_class {}",
+                "(class sub_class < super_class
+                |)\n",
+            ),
+            ("super.method ; ", "(; (super method))\n"),
         ];
 
         for (src, expected_parse) in tests {
@@ -852,6 +881,10 @@ mod test {
                 "class a_class {method_1() {} method_2(a) {}",
                 "Expect '}}' after class body",
             ),
+            ("class sub_class < {}", "Expect superclass name"),
+            ("super 10", "Expect '.' after 'super'"),
+            ("super", "Expect '.' after 'super'"),
+            ("super.10", "Expect superclass method name"),
         ];
 
         for (src, expected_message) in tests {

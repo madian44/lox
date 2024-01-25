@@ -9,6 +9,7 @@ pub enum Stmt {
     },
     Class {
         name: token::Token,
+        superclass: Option<expr::Expr>,
         methods: LinkedList<Stmt>,
     },
     Expression {

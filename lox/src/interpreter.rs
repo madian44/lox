@@ -81,9 +81,11 @@ impl<'r> Interpreter<'r> {
     ) -> Result<(), unwind::Unwind> {
         match statement {
             stmt::Stmt::Block { statements } => self.evaluate_stmt_block(environment, statements),
-            stmt::Stmt::Class { name, methods } => {
-                self.evalute_stmt_class(environment, name, methods)
-            }
+            stmt::Stmt::Class {
+                name,
+                superclass,
+                methods,
+            } => self.evalute_stmt_class(environment, name, superclass, methods),
             stmt::Stmt::Expression { expression } => {
                 self.evaluate_stmt_expression(environment, expression)
             }
@@ -122,9 +124,36 @@ impl<'r> Interpreter<'r> {
         &self,
         environment: &mut environment::Environment,
         name: &token::Token,
+        superclass: &Option<expr::Expr>,
         methods: &LinkedList<stmt::Stmt>,
     ) -> Result<(), unwind::Unwind> {
+        let superclass = if let Some(superclass) = superclass {
+            let superclass_type = self.evaluate_expr(environment, superclass)?;
+            if matches!(superclass_type, lox_type::LoxType::Class { .. }) {
+                Some(superclass_type)
+            } else {
+                self.add_diagnostic(superclass, "Superclass must be a class".to_string())?;
+                None
+            }
+        } else {
+            None
+        };
+
         environment.define(&name.lexeme, lox_type::LoxType::Nil);
+
+        let mut super_environment = if let Some(ref superclass) = superclass {
+            let mut environment = environment::Environment::new_with_enclosing(environment);
+            environment.define("super", superclass.clone());
+            Some(environment)
+        } else {
+            None
+        };
+
+        let (environment, depth) = if let Some(super_environment) = &mut super_environment {
+            (super_environment, Some(1))
+        } else {
+            (environment, Some(0))
+        };
 
         let methods = methods
             .iter()
@@ -145,9 +174,9 @@ impl<'r> Interpreter<'r> {
             })
             .collect::<HashMap<String, lox_type::LoxType>>();
 
-        let class = class::Class::new(&name.lexeme, methods);
+        let class = class::Class::new(&name.lexeme, methods, superclass);
         let class = lox_type::LoxType::Class { class };
-        let _ = environment.assign_at(Some(0), &name.lexeme, class);
+        let _ = environment.assign_at(depth, &name.lexeme, class);
         Ok(())
     }
 
@@ -281,6 +310,12 @@ impl<'r> Interpreter<'r> {
                 value,
                 ..
             } => self.evaluate_expr_set(environment, object, name, value),
+            expr::Expr::Super {
+                id,
+                keyword,
+                method,
+                ..
+            } => self.evaluate_expr_super(environment, id, keyword, method),
             expr::Expr::This { id, keyword, .. } => {
                 self.evaluate_expr_this(environment, id, keyword)
             }
@@ -417,7 +452,7 @@ impl<'r> Interpreter<'r> {
                 check_arity(callable.arity())?;
                 callable.call(arguments)
             }
-            lox_type::LoxType::Class { class } => {
+            lox_type::LoxType::Class { class, .. } => {
                 check_arity(class.arity())?;
                 class.call(self.reporter, self.depths, arguments)
             }
@@ -492,6 +527,43 @@ impl<'r> Interpreter<'r> {
             self.add_diagnostic(expression, message)?;
         }
         Ok(value)
+    }
+
+    fn evaluate_expr_super(
+        &self,
+        environment: &mut environment::Environment,
+        id: &usize,
+        keyword: &token::Token,
+        method: &token::Token,
+    ) -> Result<lox_type::LoxType, unwind::Unwind> {
+        let depth = self.depths.get(id).cloned();
+        let superclass = if let Ok(lox_type::LoxType::Class { class }) =
+            environment.get_at(depth, &keyword.lexeme)
+        {
+            class
+        } else {
+            return self.add_diagnostic(keyword, "Superclass not found".to_string());
+        };
+
+        let instance = if let Ok(lox_type::LoxType::Instance { instance }) =
+            environment.get_at(Some(depth.unwrap() - 1), "this")
+        {
+            instance
+        } else {
+            return self.add_diagnostic(keyword, "Instance not found".to_string());
+        };
+
+        let method = if let Some(lox_type::LoxType::Function { function }) =
+            superclass.find_method(&method.lexeme)
+        {
+            function
+        } else {
+            return self.add_diagnostic(keyword, "Method not found".to_string());
+        };
+
+        Ok(lox_type::LoxType::Function {
+            function: method.bind_this(lox_type::LoxType::Instance { instance }),
+        })
     }
 
     fn evaluate_expr_this(
