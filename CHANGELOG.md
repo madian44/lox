@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.0
+
+### Added
+- Implementation of Inheritance chapter.
+
 ## 0.12.0
 
 ### Added

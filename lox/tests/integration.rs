@@ -8,6 +8,18 @@ fn test_statements() {
     let tests = vec![
         //("var a = clock(); print a;", "[print] 10"),
         (
+            "class Person {
+                sayName() {
+                    print this.name;
+                }
+            }
+            var jane = Person();
+            jane.name = \"jane\";
+            var m = jane.sayName;
+            m();",
+            vec!["[print] \"jane\""],
+        ),
+        (
             "print \"hello,\" + \" world\";",
             vec!["[print] \"hello, world\""],
         ),
@@ -161,6 +173,18 @@ fn test_statements() {
                 "[print] \"Fry until golden brown\"",
                 "[print] \"Pipe full of custard and coat with chocolate\"",
             ],
+        ),
+        (
+            "class Person {
+                sayName() {
+                    print this.name;
+                }
+            }
+            var jane = Person();
+            jane.name = \"jane\";
+            var m = jane.sayName;
+            m();",
+            vec!["[print] \"jane\""],
         ),
     ];
 
