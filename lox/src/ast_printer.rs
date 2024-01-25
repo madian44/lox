@@ -18,7 +18,11 @@ mod internal {
     pub fn print_stmt(indent: usize, stmt: &stmt::Stmt) -> String {
         match stmt {
             stmt::Stmt::Block { statements } => print_stmt_block(indent, statements),
-            stmt::Stmt::Class { name, methods } => print_stmt_class(indent, name, methods),
+            stmt::Stmt::Class {
+                name,
+                superclass,
+                methods,
+            } => print_stmt_class(indent, name, superclass, methods),
             stmt::Stmt::Expression { expression } => print_stmt_expr(indent, expression),
             stmt::Stmt::Function { function } => print_stmt_function(indent, function),
             stmt::Stmt::If {
@@ -47,9 +51,20 @@ mod internal {
     fn print_stmt_class(
         indent: usize,
         name: &token::Token,
+        superclass: &Option<expr::Expr>,
         methods: &LinkedList<stmt::Stmt>,
     ) -> String {
-        let mut result = format!("{}(class {}\n", indent_string(indent), name.lexeme);
+        let mut result = format!(
+            "{}(class {}{}\n",
+            indent_string(indent),
+            name.lexeme,
+            superclass
+                .as_ref()
+                .map_or("".to_string(), |superclass| format!(
+                    " < {}",
+                    print_expr(superclass)
+                ))
+        );
 
         for method in methods {
             result.push_str(&print_stmt(indent + 1, method));
@@ -188,6 +203,9 @@ mod internal {
                 value,
                 ..
             } => print_expr_set(object, name, value),
+            expr::Expr::Super {
+                keyword, method, ..
+            } => print_expr_super(keyword, method),
             expr::Expr::This { .. } => print_expr_this(),
             expr::Expr::Unary {
                 operator, right, ..
@@ -253,6 +271,11 @@ mod internal {
             print_expr(value)
         )
     }
+
+    fn print_expr_super(_keyword: &token::Token, method: &token::Token) -> String {
+        format!("(super {})", method.lexeme,)
+    }
+
     fn print_expr_this() -> String {
         "this".to_string()
     }

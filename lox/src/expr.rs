@@ -47,6 +47,11 @@ pub enum Expr {
         name: token::Token,
         value: Box<Expr>,
     },
+    Super {
+        id: usize,
+        keyword: token::Token,
+        method: token::Token,
+    },
     This {
         id: usize,
         keyword: token::Token,
@@ -133,6 +138,14 @@ impl Expr {
         }
     }
 
+    pub fn new_super(keyword: token::Token, method: token::Token) -> Self {
+        Expr::Super {
+            id: Expr::get_id(),
+            keyword,
+            method,
+        }
+    }
+
     pub fn new_this(keyword: token::Token) -> Self {
         Expr::This {
             id: Expr::get_id(),
@@ -166,6 +179,7 @@ fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
         expr::Expr::Literal { value, .. } => &value.start,
         expr::Expr::Logical { left, .. } => get_start_location(left),
         expr::Expr::Set { object, .. } => get_start_location(object),
+        expr::Expr::Super { keyword, .. } => &keyword.start,
         expr::Expr::This { keyword, .. } => &keyword.start,
         expr::Expr::Unary { operator, .. } => &operator.start,
         expr::Expr::Variable { name, .. } => &name.start,
@@ -182,6 +196,7 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
         expr::Expr::Literal { value, .. } => &value.end,
         expr::Expr::Logical { right, .. } => get_end_location(right),
         expr::Expr::Set { value, .. } => get_end_location(value),
+        expr::Expr::Super { method, .. } => &method.end,
         expr::Expr::This { keyword, .. } => &keyword.end,
         expr::Expr::Unary { right, .. } => get_end_location(right),
         expr::Expr::Variable { name, .. } => &name.end,

@@ -134,6 +134,34 @@ fn test_statements() {
             print i.message;",
             vec!["[print] \"John\""],
         ),
+        (
+            "class Doughnut {
+                cook() {
+                    print \"Fry until golden brown\";
+                }
+            }
+            class BostonCream < Doughnut {}
+            BostonCream().cook();",
+            vec!["[print] \"Fry until golden brown\""],
+        ),
+        (
+            "class Doughnut {
+                cook() {
+                    print \"Fry until golden brown\";
+                }
+            }
+            class BostonCream < Doughnut {
+                cook() {
+                    super.cook();
+                    print \"Pipe full of custard and coat with chocolate\";
+                }
+            }
+            BostonCream().cook();",
+            vec![
+                "[print] \"Fry until golden brown\"",
+                "[print] \"Pipe full of custard and coat with chocolate\"",
+            ],
+        ),
     ];
 
     for (source, expected_messages) in tests {
@@ -337,7 +365,7 @@ fn test_failures() {
                     line_number: 0,
                     line_offset: 24,
                 },
-                message: "Undefined variable 'this'".to_string(),
+                message: "Cannot use 'this' outside of a class".to_string(),
             },
         ),
         (
@@ -352,6 +380,20 @@ fn test_failures() {
                     line_offset: 40,
                 },
                 message: "Undefined property 'src'".to_string(),
+            },
+        ),
+        (
+            "var NotAClass = \"I'm not a class\"; class Example < NotAClass {}",
+            common::Diagnostic {
+                start: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 51,
+                },
+                end: lox::FileLocation {
+                    line_number: 0,
+                    line_offset: 60,
+                },
+                message: "Superclass must be a class".to_string(),
             },
         ),
     ];
