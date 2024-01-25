@@ -21,3 +21,7 @@ Interpret the selected text
 
 ## Show All Messages
 Show all messages or just messages from `print` statements
+
+# Notes
+Will run `resolve` on file save.
+

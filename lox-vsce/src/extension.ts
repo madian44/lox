@@ -34,6 +34,19 @@ export function activate(context: vscode.ExtensionContext) {
 	addScanSelectedLoxCommand(context, diagnostics);
 	addParseSelectedLoxCommand(context, diagnostics);
 	addInterpretSelectedLoxCommand(context, diagnostics);
+
+	vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
+		resolveDocument(document, diagnostics);
+	});
+}
+
+function resolveDocument(document: vscode.TextDocument, diagnostics: vscode.DiagnosticCollection) {
+
+	const contents = document.getText();
+	diagnostics.clear();
+	const diagnosticCollection : vscode.Diagnostic[] = [];
+	wasm.resolve(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
+	diagnostics.set(document.uri, diagnosticCollection);
 }
 
 function addInterpretLoxCommand(context: vscode.ExtensionContext, diagnostics: vscode.DiagnosticCollection) {
@@ -44,6 +57,7 @@ function addInterpretLoxCommand(context: vscode.ExtensionContext, diagnostics: v
 			return;
 		}
 		const contents = activeEditor.document.getText();
+		diagnostics.clear();
 		const diagnosticCollection : vscode.Diagnostic[] = [];
 		wasm.interpret(contents, messageAdder(), diagnosticAdder(diagnosticCollection));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
@@ -72,6 +86,7 @@ function addScanSelectedLoxCommand(context: vscode.ExtensionContext, diagnostics
 			return;
 		}
 
+		diagnostics.clear();
 		const diagnosticCollection : vscode.Diagnostic[] = [];
 		wasm.scan(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
@@ -90,6 +105,7 @@ function addParseSelectedLoxCommand(context: vscode.ExtensionContext, diagnostic
 		if( !selection || selection.isEmpty) {
 			return;
 		}
+		diagnostics.clear();
 		const diagnosticCollection : vscode.Diagnostic[] = [];
 		wasm.parse(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);
@@ -108,6 +124,7 @@ function addInterpretSelectedLoxCommand(context: vscode.ExtensionContext, diagno
 		if( !selection || selection.isEmpty) {
 			return;
 		}
+		diagnostics.clear();
 		const diagnosticCollection : vscode.Diagnostic[] = [];
 		wasm.interpret(contents, messageAdder(), diagnosticAdder(diagnosticCollection, selection.start.line, selection.start.character));
 		diagnostics.set(activeEditor.document.uri, diagnosticCollection);

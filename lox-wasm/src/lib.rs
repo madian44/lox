@@ -95,6 +95,18 @@ pub fn parse(
 }
 
 #[wasm_bindgen]
+pub fn resolve(
+    text: &str,
+    js_report_message: js_sys::Function,
+    js_report_diagnostic: js_sys::Function,
+) {
+    let reporter = build_reporter(js_report_message, js_report_diagnostic);
+
+    console_log(&format!("resolving: {text}"));
+    lox::resolve(&reporter, text);
+}
+
+#[wasm_bindgen]
 pub fn interpret(
     text: &str,
     js_report_message: js_sys::Function,
