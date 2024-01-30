@@ -92,7 +92,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src --ext ts --no-color",
     "test": "node ./out/test/runTest.js",
     "clean": "rm -rf out/* ; rm -rf node_modules/*"
   },

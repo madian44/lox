@@ -9,8 +9,15 @@ mod scanner;
 mod stmt;
 mod token;
 
+pub use crate::expr::Expr;
 pub use crate::location::FileLocation;
 pub use crate::reporter::Reporter;
+pub use crate::stmt::function::Function;
+pub use crate::stmt::Stmt;
+pub use crate::token::Token;
+pub use crate::token::TokenType;
+
+use std::collections::LinkedList;
 
 pub fn run(reporter: &dyn reporter::Reporter, source: &str) {
     interpret(reporter, source);
@@ -72,4 +79,12 @@ pub fn interpret(reporter: &dyn reporter::Reporter, source: &str) {
     }
 
     interpreter::interpret(reporter, &depths, statements);
+}
+
+pub fn ast(reporter: &dyn reporter::Reporter, source: &str) -> LinkedList<stmt::Stmt> {
+    let tokens = scanner::scan_tokens(reporter, source);
+    if reporter.has_diagnostics() {
+        return LinkedList::new();
+    }
+    parser::parse(reporter, tokens)
 }

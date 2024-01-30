@@ -2,7 +2,8 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import * as wasm from '../out/wasm/lox_wasm';
-import {FileLocation} from "./lox";
+import {FileLocation, Location} from "./lox";
+import {Uri} from "vscode";
 
 const outputChannel = vscode.window.createOutputChannel("Lox", "lox");
 
@@ -18,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with registerCommand
 	// The commandId parameter must match the command field in package.json
-	let helloLox = vscode.commands.registerCommand('lox-vsce.helloLox', () => {
+	const helloLox = vscode.commands.registerCommand('lox-vsce.helloLox', () => {
 		// The code you place here will be executed every time your command is executed
 		// Display a message box to the user
         wasm.greet();
@@ -38,6 +39,8 @@ export function activate(context: vscode.ExtensionContext) {
 	vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
 		resolveDocument(document, diagnostics);
 	});
+
+	registerDefinitionProvider(context);
 }
 
 function resolveDocument(document: vscode.TextDocument, diagnostics: vscode.DiagnosticCollection) {
@@ -132,7 +135,7 @@ function addInterpretSelectedLoxCommand(context: vscode.ExtensionContext, diagno
 }
 
 function defineCommand(context: vscode.ExtensionContext, commandName: string, callback: () => void) {
-	let command = vscode.commands.registerCommand(commandName, callback);
+	const command = vscode.commands.registerCommand(commandName, callback);
 	context.subscriptions.push(command);
 }
 
@@ -168,6 +171,24 @@ function createDiagnostic(start: FileLocation, end: FileLocation, message: strin
 	const range = new vscode.Range(start.line_number, start.line_offset, end.line_number, end.line_offset);
 	const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Warning);
 	return diagnostic;
+}
+
+function registerDefinitionProvider(context: vscode.ExtensionContext) {
+	const registeredProvider = vscode.languages.registerDefinitionProvider({scheme: 'file', language: 'lox'}, {
+	provideDefinition(document: vscode.TextDocument, position: vscode.Position/*, token: vscode.CancellationToken*/): vscode.ProviderResult<vscode.Definition | vscode.LocationLink[]>
+	{
+		const result = wasm.provide_definition(document.getText(), document.fileName, { line_number: position.line, line_offset: position.character});
+		if( result && result.length > 0) {
+			return result.map((r: Location): vscode.Location => {
+				return {uri: Uri.file(r.path), range: new vscode.Range( r.range.start.line_number, r.range.start.line_offset, r.range.end.line_number, r.range.end.line_offset)};
+			});
+		}
+
+		return [];
+	}
+
+});
+	context.subscriptions.push(registeredProvider);
 }
 
 // This method is called when your extension is deactivated

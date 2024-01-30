@@ -1,5 +1,8 @@
-use serde::Serialize;
+mod language;
+
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+use std::convert;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(module = "vscode")]
@@ -21,10 +24,22 @@ pub fn greet() {
     showInformationMessage("Hello, wasm");
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct FileLocation {
     line_number: u32,
     line_offset: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Range {
+    start: FileLocation,
+    end: FileLocation,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Location {
+    path: String,
+    range: Range,
 }
 
 type MessageReporter = Box<dyn Fn(&str)>;
@@ -62,10 +77,28 @@ impl lox::Reporter for WasmReporter {
 }
 
 impl FileLocation {
-    fn build(other: &lox::FileLocation) -> Self {
+    fn new(other: &lox::FileLocation) -> Self {
         FileLocation {
             line_number: other.line_number,
             line_offset: other.line_offset,
+        }
+    }
+}
+
+impl convert::From<lox::FileLocation> for FileLocation {
+    fn from(value: lox::FileLocation) -> Self {
+        FileLocation {
+            line_offset: value.line_offset,
+            line_number: value.line_number,
+        }
+    }
+}
+
+impl convert::From<FileLocation> for lox::FileLocation {
+    fn from(value: FileLocation) -> Self {
+        lox::FileLocation {
+            line_offset: value.line_offset,
+            line_number: value.line_number,
         }
     }
 }
@@ -132,12 +165,33 @@ fn build_reporter(
         move |start: &lox::FileLocation, end: &lox::FileLocation, message: &str| {
             let _ = js_report_diagnostic.call3(
                 &this_diagnostic,
-                &serde_wasm_bindgen::to_value(&FileLocation::build(start)).unwrap(),
-                &serde_wasm_bindgen::to_value(&FileLocation::build(end)).unwrap(),
+                &serde_wasm_bindgen::to_value(&FileLocation::new(start)).unwrap(),
+                &serde_wasm_bindgen::to_value(&FileLocation::new(end)).unwrap(),
                 &JsValue::from(message),
             );
         },
     );
 
     WasmReporter::build(report_message, report_diagnostic)
+}
+
+#[wasm_bindgen]
+pub fn provide_definition(contents: &str, path: &str, position: JsValue) -> Box<[JsValue]> {
+    let position: FileLocation = serde_wasm_bindgen::from_value(position).unwrap();
+
+    let definitions = language::provide_definition(&lox::FileLocation::from(position), contents);
+
+    let result = definitions
+        .iter()
+        .map(|t| Location {
+            path: path.to_string(),
+            range: Range {
+                start: FileLocation::from(t.start),
+                end: FileLocation::from(t.end),
+            },
+        })
+        .map(|l| serde_wasm_bindgen::to_value(&l).unwrap())
+        .collect::<Vec<JsValue>>();
+
+    result.into_boxed_slice()
 }
