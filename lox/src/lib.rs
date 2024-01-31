@@ -11,6 +11,7 @@ mod token;
 
 pub use crate::expr::Expr;
 pub use crate::location::FileLocation;
+pub use crate::location::ProvideLocation;
 pub use crate::reporter::Reporter;
 pub use crate::stmt::function::Function;
 pub use crate::stmt::Stmt;
