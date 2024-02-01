@@ -12,3 +12,8 @@ export interface Location {
     path: string;
     range: Range;
 }
+
+export interface Completion {
+    name: string;
+    completion_type: number;
+}

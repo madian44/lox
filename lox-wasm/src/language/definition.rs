@@ -1,10 +1,23 @@
 use lox::FileLocation;
+use std::collections::{HashMap, LinkedList};
 
 pub fn provide_definition(position: &lox::FileLocation, source: &str) -> LinkedList<lox::Token> {
     let reporter = LanguageReporter {};
     let ast = lox::ast(&reporter, source);
     definition_for_position(position, &ast)
 }
+
+pub fn provide_completions(
+    position: &lox::FileLocation,
+    source: &str,
+) -> LinkedList<(String, u32)> {
+    let reporter = LanguageReporter {};
+    let ast = lox::ast(&reporter, source);
+    completions_for_position(position, &ast)
+}
+
+const COMPLETION_TYPE_METHOD: u32 = 1;
+const COMPLETION_TYPE_PROPERTY: u32 = 9;
 
 fn definition_for_position(
     position: &lox::FileLocation,
@@ -15,6 +28,23 @@ fn definition_for_position(
     resolver.resolve_stmts(ast);
 
     resolver.definitions
+}
+
+fn completions_for_position(
+    position: &lox::FileLocation,
+    ast: &LinkedList<lox::Stmt>,
+) -> LinkedList<(String, u32)> {
+    let mut resolver = Resolver::new(position);
+
+    resolver.resolve_stmts(ast);
+
+    let mut result = resolver
+        .completions_for_position
+        .into_iter()
+        .collect::<Vec<(String, u32)>>();
+    result.sort();
+    result.dedup();
+    result.into_iter().collect()
 }
 
 struct LanguageReporter {}
@@ -29,12 +59,11 @@ impl lox::Reporter for LanguageReporter {
     }
 }
 
-use std::collections::{HashMap, LinkedList};
-
 struct Class<'t> {
     name: &'t lox::Token,
     superclass: Option<&'t str>,
     methods: HashMap<&'t str, &'t lox::Token>,
+    properties: HashMap<&'t str, &'t lox::Token>,
 }
 
 impl<'t> Class<'t> {
@@ -43,6 +72,7 @@ impl<'t> Class<'t> {
             name,
             superclass,
             methods: HashMap::new(),
+            properties: HashMap::new(),
         }
     }
 
@@ -50,14 +80,57 @@ impl<'t> Class<'t> {
         self.methods.insert(&method.lexeme, method);
     }
 
-    fn find_method(&self, scopes: &'t Scopes, method: &str) -> Option<&'t lox::Token> {
-        if self.methods.contains_key(method) {
-            return self.methods.get(method).cloned();
+    fn find_definition(&self, scopes: &'t Scopes, name: &str) -> Option<&'t lox::Token> {
+        if self.methods.contains_key(name) {
+            return self.methods.get(name).cloned();
         }
-        self.superclass
-            .and_then(|s| scopes.find_class(s))
-            .and_then(|c| c.methods.get(method))
-            .cloned()
+        if self.properties.contains_key(name) {
+            return self.properties.get(name).cloned();
+        }
+
+        if let Some(superclass) = self.superclass {
+            if let Some(superclass) = scopes.find_class(superclass) {
+                return superclass.find_definition(scopes, name);
+            }
+        }
+
+        None
+    }
+
+    fn add_property(&mut self, property: &'t lox::Token) {
+        let name: &str = &property.lexeme;
+        if !self.properties.contains_key(name) {
+            self.properties.insert(&property.lexeme, property);
+        }
+    }
+
+    fn get_completions(
+        &self,
+        scopes: &'t Scopes,
+        include_properties: bool,
+    ) -> LinkedList<(String, u32)> {
+        let mut completions: LinkedList<(String, u32)> = self
+            .methods
+            .keys()
+            .map(|k| (k.to_string(), COMPLETION_TYPE_METHOD))
+            .collect();
+
+        if include_properties {
+            let mut other: LinkedList<(String, u32)> = self
+                .properties
+                .keys()
+                .map(|k| (k.to_string(), COMPLETION_TYPE_PROPERTY))
+                .collect();
+            completions.append(&mut other);
+        }
+
+        if let Some(superclass) = self.superclass {
+            if let Some(superclass) = scopes.find_class(superclass) {
+                completions.append(&mut superclass.get_completions(scopes, false))
+            }
+        }
+
+        completions
     }
 }
 
@@ -124,6 +197,15 @@ impl<'t> Scopes<'t> {
         }
     }
 
+    fn add_property_to_class(&mut self, class_name: &str, property: &'t lox::Token) {
+        for scope in self.scopes.iter_mut() {
+            if let Some(class) = scope.classes.get_mut(class_name) {
+                class.add_property(property);
+                return;
+            }
+        }
+    }
+
     fn find(&self, name: &str) -> Option<&lox::Token> {
         for scope in self.scopes.iter() {
             if scope.identifiers.contains_key(name) {
@@ -158,8 +240,9 @@ impl<'t> Scopes<'t> {
 struct Resolver<'a> {
     position: &'a lox::FileLocation,
     scopes: Scopes<'a>,
-    definitions: LinkedList<lox::Token>,
     current_class: Option<&'a str>,
+    definitions: LinkedList<lox::Token>,
+    completions_for_position: LinkedList<(String, u32)>,
 }
 
 impl<'a> Resolver<'a> {
@@ -169,8 +252,9 @@ impl<'a> Resolver<'a> {
         Self {
             position,
             scopes,
-            definitions: LinkedList::new(),
             current_class: None,
+            definitions: LinkedList::new(),
+            completions_for_position: LinkedList::new(),
         }
     }
 
@@ -197,13 +281,13 @@ impl<'a> Resolver<'a> {
                 else_branch,
             } => self.resolve_stmt_if(condition, then_branch, else_branch),
             lox::Stmt::Print { value } => self.resolve_stmt_print(value),
-            lox::Stmt::Return { keyword, value, .. } => self.resolve_stmt_return(keyword, value),
+            lox::Stmt::Return { value, .. } => self.resolve_stmt_return(value),
             lox::Stmt::Var { name, initialiser } => self.resolve_stmt_var(name, initialiser),
             lox::Stmt::While { condition, body } => self.resolve_stmt_while(condition, body),
         }
     }
 
-    fn resolve_expr(&mut self, expression: &lox::Expr) {
+    fn resolve_expr(&mut self, expression: &'a lox::Expr) {
         match expression {
             lox::Expr::Assign { name, value, .. } => self.resolve_expr_assign(name, value),
             lox::Expr::Binary { left, right, .. } => self.resolve_expr_binary(left, right),
@@ -212,6 +296,10 @@ impl<'a> Resolver<'a> {
             } => self.resolve_expr_call(callee, arguments),
             lox::Expr::Get { object, name, .. } => self.resolve_expr_get(object, name),
             lox::Expr::Grouping { expression, .. } => self.resolve_expr_grouping(expression),
+            lox::Expr::InvalidGet { object, name, .. } => {
+                self.resolve_invalid_expr_get(object, name)
+            }
+            lox::Expr::InvalidSuper { method, .. } => self.resolve_expr_invalid_super(method),
             lox::Expr::Literal { value, .. } => self.resolve_expr_literal(value),
             lox::Expr::Logical { left, right, .. } => self.resolve_expr_logical(left, right),
             lox::Expr::Set {
@@ -220,10 +308,8 @@ impl<'a> Resolver<'a> {
                 value,
                 ..
             } => self.resolve_expr_set(object, name, value),
-            lox::Expr::Super {
-                keyword, method, ..
-            } => self.resolve_expr_super(keyword, method),
-            lox::Expr::This { keyword, .. } => self.resolve_expr_this(keyword),
+            lox::Expr::Super { method, .. } => self.resolve_expr_super(method),
+            lox::Expr::This { .. } => self.resolve_expr_this(),
             lox::Expr::Unary { right, .. } => self.resolve_expr_unary(right),
             lox::Expr::Variable { name, .. } => self.resolve_expr_variable(name),
         }
@@ -255,13 +341,11 @@ impl<'a> Resolver<'a> {
         self.current_class = Some(&name.lexeme);
 
         if let Some(superclass) = superclass {
-            self.resolve_superclass(name, superclass);
+            self.resolve_superclass(superclass);
             self.scopes.begin();
-            //            self.scopes.define("super");
         }
 
         self.scopes.begin();
-        //        self.scopes.define("this");
 
         for method in methods {
             if let lox::Stmt::Function { function, .. } = method {
@@ -279,11 +363,11 @@ impl<'a> Resolver<'a> {
         self.current_class = enclosing_class;
     }
 
-    fn resolve_superclass(&mut self, _class_name: &lox::Token, superclass: &lox::Expr) {
+    fn resolve_superclass(&mut self, superclass: &'a lox::Expr) {
         self.resolve_expr(superclass);
     }
 
-    fn resolve_stmt_expression(&mut self, expression: &lox::Expr) {
+    fn resolve_stmt_expression(&mut self, expression: &'a lox::Expr) {
         self.resolve_expr(expression);
     }
 
@@ -294,7 +378,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_stmt_if(
         &mut self,
-        condition: &lox::Expr,
+        condition: &'a lox::Expr,
         then_branch: &'a lox::Stmt,
         else_branch: &'a Option<lox::Stmt>,
     ) {
@@ -303,11 +387,11 @@ impl<'a> Resolver<'a> {
         else_branch.iter().for_each(|s| self.resolve_stmt(s));
     }
 
-    fn resolve_stmt_print(&mut self, expression: &lox::Expr) {
+    fn resolve_stmt_print(&mut self, expression: &'a lox::Expr) {
         self.resolve_expr(expression);
     }
 
-    fn resolve_stmt_return(&mut self, _keyword: &lox::Token, expression: &Option<lox::Expr>) {
+    fn resolve_stmt_return(&mut self, expression: &'a Option<lox::Expr>) {
         if let Some(expression) = expression {
             self.resolve_expr(expression);
         }
@@ -328,84 +412,117 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_stmt_while(&mut self, condition: &lox::Expr, body: &'a lox::Stmt) {
+    fn resolve_stmt_while(&mut self, condition: &'a lox::Expr, body: &'a lox::Stmt) {
         self.resolve_expr(condition);
         self.resolve_stmt(body);
     }
 
-    fn resolve_expr_assign(&mut self, name: &lox::Token, value: &lox::Expr) {
+    fn resolve_expr_assign(&mut self, name: &lox::Token, value: &'a lox::Expr) {
         self.resolve_expr(value);
         self.resolve_local(name);
     }
 
-    fn resolve_expr_binary(&mut self, left: &lox::Expr, right: &lox::Expr) {
+    fn resolve_expr_binary(&mut self, left: &'a lox::Expr, right: &'a lox::Expr) {
         self.resolve_expr(left);
         self.resolve_expr(right);
     }
 
-    fn resolve_expr_call(&mut self, callee: &lox::Expr, arguments: &[lox::Expr]) {
+    fn resolve_expr_call(&mut self, callee: &'a lox::Expr, arguments: &'a [lox::Expr]) {
         self.resolve_expr(callee);
         arguments.iter().for_each(|a| self.resolve_expr(a));
     }
 
-    fn resolve_expr_get(&mut self, object: &lox::Expr, name: &lox::Token) {
-        if self.is_at_position(name) {
-            // position is a property of something
-            let method = if let lox::Expr::Variable { name: target, .. } = object {
-                self.scopes
-                    .find_type_for_identifier(&target.lexeme)
-                    .and_then(|t| self.scopes.find_class(t))
-                    .and_then(|c| c.find_method(&self.scopes, &name.lexeme))
-            } else if let lox::Expr::Call { callee, .. } = object {
+    fn find_class_for_expr(&self, expr: &lox::Expr) -> Option<&Class> {
+        match expr {
+            lox::Expr::Variable { name: target, .. } => self
+                .scopes
+                .find_type_for_identifier(&target.lexeme)
+                .and_then(|t| self.scopes.find_class(t)),
+            lox::Expr::Call { callee, .. } => {
                 if let lox::Expr::Variable { name: target, .. } = callee.as_ref() {
-                    self.scopes
-                        .find_class(&target.lexeme)
-                        .and_then(|c| c.find_method(&self.scopes, &name.lexeme))
+                    self.scopes.find_class(&target.lexeme)
                 } else {
                     None
                 }
-            } else if let lox::Expr::This { .. } = object {
-                if let Some(class) = self.current_class.and_then(|c| self.scopes.find_class(c)) {
-                    class.find_method(&self.scopes, &name.lexeme)
-                } else {
-                    None
+            }
+            lox::Expr::This { .. } => self.current_class.and_then(|c| self.scopes.find_class(c)),
+            _ => None,
+        }
+    }
+
+    fn resolve_expr_get(&mut self, object: &'a lox::Expr, name: &lox::Token) {
+        if self.is_at_position(name) {
+            let class: Option<&Class> = self.find_class_for_expr(object);
+            if let Some(class) = class {
+                if let Some(method) = class.find_definition(&self.scopes, &name.lexeme) {
+                    self.definitions.push_back((*method).clone());
                 }
-            } else {
-                None
-            };
-            method
-                .into_iter()
-                .for_each(|m| self.definitions.push_back((*m).clone()));
+            }
         } else {
             self.resolve_local(name);
             self.resolve_expr(object);
         }
     }
 
-    fn resolve_expr_grouping(&mut self, expression: &lox::Expr) {
+    fn resolve_invalid_expr_get(&mut self, object: &'a lox::Expr, name: &lox::Token) {
+        if self.is_at_position(name) {
+            {
+                let class: Option<&Class> = self.find_class_for_expr(object);
+                if let Some(class) = class {
+                    self.completions_for_position
+                        .append(&mut class.get_completions(&self.scopes, true));
+                }
+            }
+        } else {
+            self.resolve_local(name);
+            self.resolve_expr(object);
+        }
+    }
+
+    fn resolve_expr_grouping(&mut self, expression: &'a lox::Expr) {
         self.resolve_expr(expression);
     }
 
     fn resolve_expr_literal(&mut self, _: &lox::Token) {}
 
-    fn resolve_expr_logical(&mut self, left: &lox::Expr, right: &lox::Expr) {
+    fn resolve_expr_logical(&mut self, left: &'a lox::Expr, right: &'a lox::Expr) {
         self.resolve_expr(left);
         self.resolve_expr(right);
     }
 
-    fn resolve_expr_set(&mut self, object: &lox::Expr, name: &lox::Token, value: &lox::Expr) {
-        self.resolve_expr(object);
-        self.resolve_local(name);
-        self.resolve_expr(value);
+    fn resolve_expr_set(
+        &mut self,
+        object: &'a lox::Expr,
+        name: &'a lox::Token,
+        value: &'a lox::Expr,
+    ) {
+        let class = self
+            .find_class_for_expr(object)
+            .map(|c| c.name.lexeme.clone());
+        if let Some(class_name) = class {
+            self.scopes.add_property_to_class(&class_name, name);
+        }
+
+        if self.is_at_position(name) {
+            let class: Option<&Class> = self.find_class_for_expr(object);
+            if let Some(class) = class {
+                if let Some(method) = class.find_definition(&self.scopes, &name.lexeme) {
+                    self.definitions.push_back((*method).clone());
+                }
+            }
+        } else {
+            self.resolve_expr(object);
+            self.resolve_local(name);
+            self.resolve_expr(value);
+        }
     }
 
-    fn resolve_expr_super(&mut self, keyword: &lox::Token, method: &lox::Token) {
-        self.resolve_local(keyword);
+    fn resolve_expr_super(&mut self, method: &lox::Token) {
         if self.is_at_position(method) {
             if let Some(class) = self.current_class.and_then(|c| self.scopes.find_class(c)) {
                 if let Some(superclass) = class.superclass.and_then(|s| self.scopes.find_class(s)) {
                     superclass
-                        .find_method(&self.scopes, &method.lexeme)
+                        .find_definition(&self.scopes, &method.lexeme)
                         .iter()
                         .for_each(|m| self.definitions.push_back((*m).clone()));
                 }
@@ -413,11 +530,20 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_expr_this(&mut self, keyword: &lox::Token) {
-        self.resolve_local(keyword);
+    fn resolve_expr_invalid_super(&mut self, method: &lox::Token) {
+        if self.is_at_position(method) {
+            if let Some(class) = self.current_class.and_then(|c| self.scopes.find_class(c)) {
+                if let Some(superclass) = class.superclass.and_then(|s| self.scopes.find_class(s)) {
+                    self.completions_for_position
+                        .append(&mut superclass.get_completions(&self.scopes, true));
+                }
+            }
+        }
     }
 
-    fn resolve_expr_unary(&mut self, right: &lox::Expr) {
+    fn resolve_expr_this(&mut self) {}
+
+    fn resolve_expr_unary(&mut self, right: &'a lox::Expr) {
         self.resolve_expr(right);
     }
 
@@ -470,7 +596,7 @@ mod test {
     }
 
     #[test]
-    fn test() {
+    fn test_definitions() {
         let tests = vec![
             ("fred = 1;", (0, 0), vec![]),
             (
@@ -523,7 +649,7 @@ mod test {
                 |  hello() {}
                 |}
                 |class Test < Base {
-                |  hello() { 
+                |  hello() {
                 |    super.hello();
                 |  }
                 |}",
@@ -547,8 +673,27 @@ mod test {
                 (1, 9),
                 vec![((0, 9), (0, 14))],
             ),
+            (
+                "fun Test(param) {
+                |  print param;
+                |}
+                |var test = Test();
+                |print test;",
+                (4, 6),
+                vec![((3, 4), (3, 8))],
+            ),
+            (
+                "class Test {
+                |  first() {}
+                |}
+                |var t = Test();
+                |t.property = 10;
+                |t.property = 20;",
+                (5, 2),
+                vec![((4, 2), (4, 10))],
+            ),
         ];
-        for (source, (line_number, line_offset), locations) in tests {
+        for (source, (line_number, line_offset), expected_locations) in tests {
             let result = provide_definition(
                 &FileLocation {
                     line_number,
@@ -559,17 +704,178 @@ mod test {
 
             assert_eq!(
                 result.len(),
-                locations.len(),
+                expected_locations.len(),
                 "Unexpected number of locations for {}",
                 source
             );
-            for (location, expected_location) in zip(result, locations) {
+            for (location, expected_location) in zip(result, expected_locations) {
                 if (location.start
                     != lox::FileLocation::new(expected_location.0 .0, expected_location.0 .1))
                     || (location.end
                         != lox::FileLocation::new(expected_location.1 .0, expected_location.1 .1))
                 {
                     panic!("Missing location for {} {:?}", source, location);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_completions() {
+        let tests = vec![
+            (
+                "class Test {
+                |  first() {}
+                |  second() {}
+                |}
+                |var test = Test();
+                |test.",
+                (5, 4),
+                vec![
+                    ("first", COMPLETION_TYPE_METHOD),
+                    ("second", COMPLETION_TYPE_METHOD),
+                ],
+            ),
+            (
+                "class Base {
+                |  first() {}
+                |}
+                |class Test < Base {
+                |  second() {}
+                |}
+                |var test = Test();
+                |test.",
+                (7, 4),
+                vec![
+                    ("first", COMPLETION_TYPE_METHOD),
+                    ("second", COMPLETION_TYPE_METHOD),
+                ],
+            ),
+            (
+                "class Test {
+                |  first() {}
+                |  second() {}
+                |}
+                |Test().",
+                (4, 6),
+                vec![
+                    ("first", COMPLETION_TYPE_METHOD),
+                    ("second", COMPLETION_TYPE_METHOD),
+                ],
+            ),
+            (
+                "class Base {
+                |  first() {}
+                |}
+                |class Test < Base {
+                |  second() {}
+                |}
+                |Test().",
+                (6, 6),
+                vec![
+                    ("first", COMPLETION_TYPE_METHOD),
+                    ("second", COMPLETION_TYPE_METHOD),
+                ],
+            ),
+            (
+                "class Base {
+                |  first() {}
+                |}
+                |class Test < Base {
+                |  first() {}
+                |  second() {}
+                |}
+                |Test().",
+                (7, 6),
+                vec![
+                    ("first", COMPLETION_TYPE_METHOD),
+                    ("second", COMPLETION_TYPE_METHOD),
+                ],
+            ),
+            (
+                "class Test {
+                |  first() {}
+                |  second() {
+                |    this.
+                |  }
+                |}",
+                (3, 8),
+                vec![
+                    ("first", COMPLETION_TYPE_METHOD),
+                    ("second", COMPLETION_TYPE_METHOD),
+                ],
+            ),
+            (
+                "class Base {
+                |  first() {}
+                |}
+                |class Test < Base {
+                |  second() {
+                |    super.
+                |  }
+                |}
+                |Test().",
+                (5, 9),
+                vec![("first", COMPLETION_TYPE_METHOD)],
+            ),
+            (
+                "class Test {
+                |}
+                |var t = Test();
+                |t.property = 10;
+                |t.
+                |",
+                (4, 2),
+                vec![("property", COMPLETION_TYPE_PROPERTY)],
+            ),
+            (
+                "class Test {
+                |}
+                |var t = Test();
+                |t.first_property = 10;
+                |t.second_property = 20;
+                |t.
+                |",
+                (5, 2),
+                vec![
+                    ("first_property", COMPLETION_TYPE_PROPERTY),
+                    ("second_property", COMPLETION_TYPE_PROPERTY),
+                ],
+            ),
+            (
+                "class Base {
+                |}
+                |var b = Base();
+                |b.base_property = 1;
+                |class Test < Base {
+                |}
+                |var t = Test();
+                |t.test_property = 2;
+                |t.",
+                (8, 1),
+                vec![("test_property", COMPLETION_TYPE_PROPERTY)],
+            ),
+        ];
+        for (source, (line_number, line_offset), expected_completions) in tests {
+            let result = provide_completions(
+                &FileLocation {
+                    line_number,
+                    line_offset,
+                },
+                &unindent_string(source),
+            );
+
+            assert_eq!(
+                result.len(),
+                expected_completions.len(),
+                "Unexpected number of completions for {}",
+                source
+            );
+            for (completion, expected_completion) in zip(result, expected_completions) {
+                let expected_completion =
+                    (expected_completion.0.to_string(), expected_completion.1);
+                if completion != expected_completion {
+                    panic!("Missing completion for {} {:?}", source, completion);
                 }
             }
         }

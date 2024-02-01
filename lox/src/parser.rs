@@ -14,7 +14,16 @@ pub fn parse(
     reporter: &dyn reporter::Reporter,
     tokens: LinkedList<token::Token>,
 ) -> LinkedList<stmt::Stmt> {
-    let mut parser = Parser::new(reporter, tokens);
+    let mut parser = Parser::new(reporter, tokens, false);
+
+    parser.parse()
+}
+
+pub fn parse_allow_invalid_call(
+    reporter: &dyn reporter::Reporter,
+    tokens: LinkedList<token::Token>,
+) -> LinkedList<stmt::Stmt> {
+    let mut parser = Parser::new(reporter, tokens, true);
 
     parser.parse()
 }
@@ -63,6 +72,7 @@ struct Parser<'k> {
     last_location: Option<location::FileLocation>,
     reporter: &'k dyn reporter::Reporter,
     tokens: Peekable<IntoIter<token::Token>>,
+    allow_invalid_call: bool,
 }
 ///
 /// Parser stores the current token.
@@ -73,12 +83,17 @@ struct Parser<'k> {
 /// `check_next_token` checks if the next token is of the requested type
 /// `declaration` will try to synchronize to a semi-colon after a failure is detected
 impl<'k> Parser<'k> {
-    fn new(reporter: &'k dyn reporter::Reporter, tokens: LinkedList<token::Token>) -> Self {
+    fn new(
+        reporter: &'k dyn reporter::Reporter,
+        tokens: LinkedList<token::Token>,
+        allow_invalid_call: bool,
+    ) -> Self {
         Parser {
             current_token: None,
             last_location: None,
             reporter,
             tokens: tokens.into_iter().peekable(),
+            allow_invalid_call,
         }
     }
 
@@ -368,8 +383,14 @@ impl<'k> Parser<'k> {
 
     fn expression_statement(&mut self, data: &Data) -> Result<stmt::Stmt, ParseError> {
         let expression = self.expression(data)?;
-        self.consume_semicolon("Expect ';' after expression")?;
-        Ok(stmt::Stmt::Expression { expression })
+        let error = self.consume_semicolon("Expect ';' after expression");
+        if error.is_ok() {
+            Ok(stmt::Stmt::Expression { expression })
+        } else if !self.allow_invalid_call {
+            Err(error.err().unwrap())
+        } else {
+            Ok(stmt::Stmt::Expression { expression })
+        }
     }
 
     fn expression(&mut self, data: &Data) -> Result<expr::Expr, ParseError> {
@@ -480,12 +501,19 @@ impl<'k> Parser<'k> {
             if self.consume_matching_token(&token::TokenType::LeftParen) {
                 expr = self.finish_call(data, expr)?;
             } else if self.consume_matching_token(&token::TokenType::Dot) {
-                self.consume_token(
+                let dot = self.take_current_token();
+                let error = self.consume_token(
                     &token::TokenType::Identifier,
                     "Expect property name after '.'",
-                )?;
-                let name = self.take_current_token()?;
-                expr = expr::Expr::new_get(expr, name);
+                );
+                if error.is_ok() {
+                    let name = self.take_current_token()?;
+                    expr = expr::Expr::new_get(expr, name);
+                } else if !self.allow_invalid_call {
+                    return Err(error.err().unwrap());
+                } else {
+                    expr = expr::Expr::new_invalid_get(expr, dot.unwrap());
+                }
             } else {
                 break;
             }
@@ -528,12 +556,21 @@ impl<'k> Parser<'k> {
         if self.consume_matching_token(&token::TokenType::Super) {
             let keyword = self.take_current_token()?;
             self.consume_token(&token::TokenType::Dot, "Expect '.' after 'super'")?;
-            self.consume_token(
+            let dot = self.take_current_token();
+
+            let error = self.consume_token(
                 &token::TokenType::Identifier,
                 "Expect superclass method name",
-            )?;
-            let method = self.take_current_token().unwrap();
-            return Ok(expr::Expr::new_super(keyword, method));
+            );
+
+            if error.is_ok() {
+                let method = self.take_current_token().unwrap();
+                return Ok(expr::Expr::new_super(keyword, method));
+            } else if !self.allow_invalid_call {
+                return Err(error.err().unwrap());
+            } else {
+                return Ok(expr::Expr::new_invalid_super(keyword, dot.unwrap()));
+            }
         }
 
         if self.consume_matching_token(&token::TokenType::This) {

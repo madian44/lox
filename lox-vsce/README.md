@@ -25,5 +25,5 @@ Show all messages or just messages from `print` statements
 # Notes
 Will run `resolve` on file save.
 
-Basic `Declarative language` configuration and `Go to definition` implementation.
+Basic `Declarative language` configuration `Go to definition` and completions implementation.
 

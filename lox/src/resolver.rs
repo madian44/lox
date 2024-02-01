@@ -161,6 +161,8 @@ impl<'r> Resolver<'r> {
             } => self.resolve_expr_call(callee, arguments),
             expr::Expr::Get { object, .. } => self.resolve_expr_get(object),
             expr::Expr::Grouping { expression, .. } => self.resolve_expr_grouping(expression),
+            expr::Expr::InvalidGet { .. } => (),
+            expr::Expr::InvalidSuper { .. } => (),
             expr::Expr::Literal { value, .. } => self.resolve_expr_literal(value),
             expr::Expr::Logical { left, right, .. } => self.resolve_expr_logical(left, right),
             expr::Expr::Set { object, value, .. } => self.resolve_expr_set(object, value),

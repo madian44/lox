@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 wasm-bindgen = { version = "0.2.90", features = ["serde-serialize"] }
 js-sys = "0.3.67"
 lox = { path = "../lox" }
-serde = { version = "1.0.195", features = ["derive"] }
+serde = { version = "1.0.196", features = ["derive"] }
 serde-wasm-bindgen = "0.6.3"
 
 [dev-dependencies]

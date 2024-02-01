@@ -1,9 +1,18 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import {
+	CancellationToken,
+	CompletionContext,
+	CompletionItem,
+	CompletionList,
+	Position,
+	ProviderResult,
+	TextDocument,
+	Uri
+} from 'vscode';
 import * as wasm from '../out/wasm/lox_wasm';
-import {FileLocation, Location} from "./lox";
-import {Uri} from "vscode";
+import {Completion, FileLocation, Location} from "./lox";
 
 const outputChannel = vscode.window.createOutputChannel("Lox", "lox");
 
@@ -41,6 +50,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	registerDefinitionProvider(context);
+	registerCompletionItemProvider(context);
 }
 
 function resolveDocument(document: vscode.TextDocument, diagnostics: vscode.DiagnosticCollection) {
@@ -175,19 +185,29 @@ function createDiagnostic(start: FileLocation, end: FileLocation, message: strin
 
 function registerDefinitionProvider(context: vscode.ExtensionContext) {
 	const registeredProvider = vscode.languages.registerDefinitionProvider({scheme: 'file', language: 'lox'}, {
-	provideDefinition(document: vscode.TextDocument, position: vscode.Position/*, token: vscode.CancellationToken*/): vscode.ProviderResult<vscode.Definition | vscode.LocationLink[]>
-	{
-		const result = wasm.provide_definition(document.getText(), document.fileName, { line_number: position.line, line_offset: position.character});
-		if( result && result.length > 0) {
-			return result.map((r: Location): vscode.Location => {
-				return {uri: Uri.file(r.path), range: new vscode.Range( r.range.start.line_number, r.range.start.line_offset, r.range.end.line_number, r.range.end.line_offset)};
+		provideDefinition(document: vscode.TextDocument, position: vscode.Position, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.Definition | vscode.LocationLink[]> {
+			const result = wasm.provide_definition(document.getText(), document.fileName, { line_number: position.line, line_offset: position.character});
+			if( result && result.length > 0) {
+				return result.map((r: Location): vscode.Location => {
+					return {uri: Uri.file(r.path), range: new vscode.Range( r.range.start.line_number, r.range.start.line_offset, r.range.end.line_number, r.range.end.line_offset)};
+				});
+			}
+
+			return [];
+		}
+	});
+	context.subscriptions.push(registeredProvider);
+}
+
+function registerCompletionItemProvider(context: vscode.ExtensionContext) {
+	const registeredProvider = vscode.languages.registerCompletionItemProvider({scheme: 'file', language: 'lox'}, {
+		provideCompletionItems(document: TextDocument, position: Position, _token: CancellationToken, _context: CompletionContext): ProviderResult<CompletionItem[] | CompletionList<CompletionItem>> {
+			const result = wasm.provide_completions(document.getText(), { line_number: position.line, line_offset: position.character});
+			return result.map((c: Completion): vscode.CompletionItem => {
+				return new vscode.CompletionItem(c.name, c.completion_type);
 			});
 		}
-
-		return [];
-	}
-
-});
+	}, '.');
 	context.subscriptions.push(registeredProvider);
 }
 

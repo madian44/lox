@@ -31,6 +31,16 @@ pub enum Expr {
         id: usize,
         expression: Box<Expr>,
     },
+    InvalidGet {
+        id: usize,
+        object: Box<Expr>,
+        name: token::Token,
+    },
+    InvalidSuper {
+        id: usize,
+        keyword: token::Token,
+        method: token::Token,
+    },
     Literal {
         id: usize,
         value: token::Token,
@@ -113,6 +123,22 @@ impl Expr {
         }
     }
 
+    pub fn new_invalid_get(object: Expr, name: token::Token) -> Self {
+        Expr::InvalidGet {
+            id: Expr::get_id(),
+            object: Box::new(object),
+            name,
+        }
+    }
+
+    pub fn new_invalid_super(keyword: token::Token, method: token::Token) -> Self {
+        Expr::InvalidSuper {
+            id: Expr::get_id(),
+            keyword,
+            method,
+        }
+    }
+
     pub fn new_literal(value: token::Token) -> Self {
         Expr::Literal {
             id: Expr::get_id(),
@@ -176,6 +202,8 @@ fn get_start_location(expr: &expr::Expr) -> &location::FileLocation {
         expr::Expr::Call { callee, .. } => get_start_location(callee),
         expr::Expr::Get { object, .. } => get_start_location(object),
         expr::Expr::Grouping { expression, .. } => get_start_location(expression),
+        expr::Expr::InvalidGet { object, .. } => get_start_location(object),
+        expr::Expr::InvalidSuper { keyword, .. } => &keyword.start,
         expr::Expr::Literal { value, .. } => &value.start,
         expr::Expr::Logical { left, .. } => get_start_location(left),
         expr::Expr::Set { object, .. } => get_start_location(object),
@@ -191,8 +219,10 @@ fn get_end_location(expr: &expr::Expr) -> &location::FileLocation {
         expr::Expr::Assign { value, .. } => get_end_location(value),
         expr::Expr::Binary { right, .. } => get_end_location(right),
         expr::Expr::Call { paren, .. } => &paren.end,
-        expr::Expr::Grouping { expression, .. } => get_end_location(expression),
         expr::Expr::Get { name, .. } => &name.end,
+        expr::Expr::Grouping { expression, .. } => get_end_location(expression),
+        expr::Expr::InvalidGet { name, .. } => &name.end,
+        expr::Expr::InvalidSuper { method, .. } => &method.end,
         expr::Expr::Literal { value, .. } => &value.end,
         expr::Expr::Logical { right, .. } => get_end_location(right),
         expr::Expr::Set { value, .. } => get_end_location(value),

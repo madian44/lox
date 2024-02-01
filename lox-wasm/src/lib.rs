@@ -42,6 +42,12 @@ struct Location {
     range: Range,
 }
 
+#[derive(Serialize, Debug)]
+struct Completion {
+    name: String,
+    completion_type: u32,
+}
+
 type MessageReporter = Box<dyn Fn(&str)>;
 type DiagnosticReporter = Box<dyn Fn(&lox::FileLocation, &lox::FileLocation, &str)>;
 
@@ -194,4 +200,21 @@ pub fn provide_definition(contents: &str, path: &str, position: JsValue) -> Box<
         .collect::<Vec<JsValue>>();
 
     result.into_boxed_slice()
+}
+
+#[wasm_bindgen]
+pub fn provide_completions(contents: &str, position: JsValue) -> Box<[JsValue]> {
+    let position: FileLocation = serde_wasm_bindgen::from_value(position).unwrap();
+
+    let completions = language::provide_completions(&lox::FileLocation::from(position), contents);
+
+    completions
+        .into_iter()
+        .map(|(name, completion_type)| Completion {
+            name,
+            completion_type,
+        })
+        .map(|c| serde_wasm_bindgen::to_value(&c).unwrap())
+        .collect::<Vec<JsValue>>()
+        .into_boxed_slice()
 }

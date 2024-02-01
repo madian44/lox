@@ -87,5 +87,5 @@ pub fn ast(reporter: &dyn reporter::Reporter, source: &str) -> LinkedList<stmt::
     if reporter.has_diagnostics() {
         return LinkedList::new();
     }
-    parser::parse(reporter, tokens)
+    parser::parse_allow_invalid_call(reporter, tokens)
 }

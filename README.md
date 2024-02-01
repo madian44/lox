@@ -70,3 +70,4 @@ Typescript `vsce` extension.
  * `Resolve on save`.
  * Basic `Declarative language` configuration.
  * Basic `Go to definition` implementation.
+ * Basic completions implementation.
