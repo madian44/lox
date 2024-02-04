@@ -64,3 +64,10 @@ Typescript `vsce` extension.
  * Chapter 11 Resolving and Binding
  * Chapter 12 Classes
  * Chapter 13 Inheritance
+
+### VSCode integration
+
+ * `Resolve on save`.
+ * Basic `Declarative language` configuration.
+ * Basic `Go to definition` implementation.
+ * Basic completions implementation.

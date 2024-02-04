@@ -1,4 +1,9 @@
 # Changelog
+`
+## 0.14.0
+
+### Added
+- Integration with VSCode language extensions:
 
 ## 0.13.0
 

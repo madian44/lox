@@ -2,7 +2,7 @@
   "name": "lox-vsce",
   "displayName": "lox-vsce",
   "description": "",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -31,7 +31,8 @@
         "id": "lox",
         "extensions": [
           ".lox"
-        ]
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -91,7 +92,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src --ext ts --no-color",
     "test": "node ./out/test/runTest.js",
     "clean": "rm -rf out/* ; rm -rf node_modules/*"
   },

@@ -190,6 +190,10 @@ mod internal {
             } => print_expr_call(callee, arguments),
             expr::Expr::Get { object, name, .. } => print_expr_get(object, name),
             expr::Expr::Grouping { expression, .. } => print_expr_grouping(expression),
+            expr::Expr::InvalidGet { object, name, .. } => print_expr_get(object, name),
+            expr::Expr::InvalidSuper {
+                keyword, method, ..
+            } => print_expr_super(keyword, method),
             expr::Expr::Literal { value, .. } => print_expr_literal(value),
             expr::Expr::Logical {
                 left,

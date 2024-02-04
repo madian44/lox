@@ -297,6 +297,12 @@ impl<'r> Interpreter<'r> {
                 self.evaluate_expr_get(environment, object, name)
             }
             expr::Expr::Grouping { expression, .. } => self.evaluate_expr(environment, expression),
+            expr::Expr::InvalidGet { .. } => {
+                unreachable!()
+            }
+            expr::Expr::InvalidSuper { .. } => {
+                unreachable!()
+            }
             expr::Expr::Literal { value, .. } => self.evaluate_expr_literal(expression, value),
             expr::Expr::Logical {
                 left,
