@@ -922,6 +922,7 @@ mod test {
             ("super 10", "Expect '.' after 'super'"),
             ("super", "Expect '.' after 'super'"),
             ("super.10", "Expect superclass method name"),
+            ("fred.10", "Expect property name after '.'"),
         ];
 
         for (src, expected_message) in tests {
@@ -941,6 +942,39 @@ mod test {
                 expected_message,
                 "Missing diagnostic for '{}'",
                 src
+            );
+        }
+    }
+
+    #[test]
+    fn allow_invalid_call_tests() {
+        let reporter = TestReporter::new();
+
+        let tests = vec![
+            ("test. ;", "(; (test..))\n"),
+            ("super. ;", "(; (super .))\n"),
+        ];
+
+        for (src, expected_parse) in tests {
+            reporter.reset();
+            let expected_parse = unindent_string(expected_parse);
+
+            let tokens = scanner::scan_tokens(&reporter, src);
+            let statements = parse_allow_invalid_call(&reporter, tokens);
+
+            let parse = if statements.front().is_some() {
+                ast_printer::print_stmt(statements.front().unwrap())
+            } else {
+                "".to_string()
+            };
+            if statements.len() != 1 || parse != expected_parse {
+                reporter.print_contents();
+            }
+            assert_eq!(statements.len(), 1, "Unexpected statements for '{}'", src);
+            assert_eq!(
+                parse, expected_parse,
+                "unexpected parse of '{}'; {} does not match {}",
+                src, parse, expected_parse
             );
         }
     }

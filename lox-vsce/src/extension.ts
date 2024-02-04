@@ -2,8 +2,6 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import {
-	CancellationToken,
-	CompletionContext,
 	CompletionItem,
 	CompletionList,
 	Position,
@@ -185,7 +183,7 @@ function createDiagnostic(start: FileLocation, end: FileLocation, message: strin
 
 function registerDefinitionProvider(context: vscode.ExtensionContext) {
 	const registeredProvider = vscode.languages.registerDefinitionProvider({scheme: 'file', language: 'lox'}, {
-		provideDefinition(document: vscode.TextDocument, position: vscode.Position, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.Definition | vscode.LocationLink[]> {
+		provideDefinition(document: vscode.TextDocument, position: vscode.Position): vscode.ProviderResult<vscode.Definition | vscode.LocationLink[]> {
 			const result = wasm.provide_definition(document.getText(), document.fileName, { line_number: position.line, line_offset: position.character});
 			if( result && result.length > 0) {
 				return result.map((r: Location): vscode.Location => {
@@ -201,8 +199,8 @@ function registerDefinitionProvider(context: vscode.ExtensionContext) {
 
 function registerCompletionItemProvider(context: vscode.ExtensionContext) {
 	const registeredProvider = vscode.languages.registerCompletionItemProvider({scheme: 'file', language: 'lox'}, {
-		provideCompletionItems(document: TextDocument, position: Position, _token: CancellationToken, _context: CompletionContext): ProviderResult<CompletionItem[] | CompletionList<CompletionItem>> {
-			const result = wasm.provide_completions(document.getText(), { line_number: position.line, line_offset: position.character});
+		provideCompletionItems(document: TextDocument, position: Position): ProviderResult<CompletionItem[] | CompletionList<CompletionItem>> {
+			const result = wasm.provide_completions(document.getText(), { line_number: position.line, line_offset: position.character-1});
 			return result.map((c: Completion): vscode.CompletionItem => {
 				return new vscode.CompletionItem(c.name, c.completion_type);
 			});

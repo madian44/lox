@@ -692,6 +692,79 @@ mod test {
                 (5, 2),
                 vec![((4, 2), (4, 10))],
             ),
+            (
+                "var value = 10;
+                |if ( value == 10) {
+                |  value = 20;
+                |} else {
+                |  value = 30;
+                |}",
+                (1, 5),
+                vec![((0, 4), (0, 9))],
+            ),
+            (
+                "var value = 10;
+                |if ( value == 10) {
+                |  value = 20;
+                |} else {
+                |  value = 30;
+                |}",
+                (2, 2),
+                vec![((0, 4), (0, 9))],
+            ),
+            (
+                "var value = 10;
+                |if ( value == 10) {
+                |  value = 20;
+                |} else {
+                |  value = 30;
+                |}",
+                (4, 2),
+                vec![((0, 4), (0, 9))],
+            ),
+            (
+                "fun function(value) {
+                |  return value;
+                |}",
+                (1, 9),
+                vec![((0, 13), (0, 18))],
+            ),
+            (
+                "class Test {
+                |  condition() {}
+                |};
+                |var t = Test();
+                |while (t.condition()) {
+                |  print t.condition();
+                |}",
+                (4, 9),
+                vec![((1, 2), (1, 11))],
+            ),
+            (
+                "var a = 10;
+                |var b = 20;
+                |var c = (a + b) * 2;",
+                (2, 9),
+                vec![((0, 4), (0, 5))],
+            ),
+            (
+                "var a = 10;
+                |var b = 20;
+                |if (a > !b) {
+                | print \"here\";
+                |}",
+                (2, 4),
+                vec![((0, 4), (0, 5))],
+            ),
+            (
+                "var a = 10;
+                |var b = true;
+                |if (a > 10 or !b) {
+                | print \"here\";
+                |}",
+                (2, 15),
+                vec![((1, 4), (1, 5))],
+            ),
         ];
         for (source, (line_number, line_offset), expected_locations) in tests {
             let result = provide_definition(
