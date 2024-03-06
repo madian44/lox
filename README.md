@@ -8,7 +8,7 @@ An implementation of lox from [Crafting Interpreters](https://craftinginterprete
 
 - rust toolchain (https://rustwasm.github.io/docs/book/game-of-life/setup.html) (rust and wasm-pack at least)
 - node (https://github.com/nvm-sh/nvm)
-- vcse (https://code.visualstudio.com/api/working-with-extensions/publishing-extension#vsce)
+- vsce (https://code.visualstudio.com/api/working-with-extensions/publishing-extension#vsce)
 - make
 
 ## Building
